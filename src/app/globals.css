@@ -114,6 +114,23 @@ svg {
   @apply text-foreground underline underline-offset-4 transition hover:opacity-70;
 }
 
+/* Unlayered so these win over the global `svg { height: auto }` rule. */
+.plain-thread-hero-botanical {
+  width: 62%;
+  max-width: none;
+  height: 115%;
+}
+
+@media (min-width: 640px) {
+  .plain-thread-hero-botanical {
+    width: 55%;
+  }
+}
+
+.plain-thread-discount-seal {
+  border: 1.5px solid rgba(89, 74, 59, 0.72);
+}
+
 @media (hover: none) {
   .hover-lift:hover {
     transform: none !important;
