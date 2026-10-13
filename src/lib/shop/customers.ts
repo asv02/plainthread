@@ -64,20 +64,16 @@ export async function getCustomerFromCookie(): Promise<CustomerUser | null> {
   const db = supabaseAdmin();
   const { data: session, error } = await db
     .from("customer_sessions")
-    .select("user_id, expires_at")
+    .select("user_id, expires_at, users(id, email, phone, name)")
     .eq("token", token)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!session) return null;
   if (new Date(session.expires_at).getTime() < Date.now()) return null;
-  const { data: user, error: userError } = await db
-    .from("users")
-    .select("id, email, phone, name")
-    .eq("id", session.user_id)
-    .maybeSingle();
-  if (userError) throw new Error(userError.message);
-  if (!user) return null;
-  return user as CustomerUser;
+  const user = (session as { users?: CustomerUser | CustomerUser[] | null }).users;
+  const row = Array.isArray(user) ? user[0] : user;
+  if (!row?.id) return null;
+  return row;
 }
 
 export async function deleteCustomerSession() {

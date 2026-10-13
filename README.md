@@ -73,9 +73,11 @@ A compact bottom notice (not a full-screen overlay) asks for an explicit choice.
 
 **Storage:** `pt_ad_consent` holds a versioned record (`policyVersion` `2026-10`, choice, `marketing` flag, timestamp). Legacy values `granted` / `denied` still parse. Max-Age 1 year, `Path=/`, `SameSite=Lax`, `Secure` on HTTPS.
 
-**Pixel:** `fbq` loads only after Accept all. Reject / withdraw calls `fbq('consent','revoke')`, clears the client event queue, and expires `_fbp` / `_fbc`. Re-accept grants again without a second script tag. PageView, ViewContent, AddToCart, InitiateCheckout, and Purchase all use `trackMetaEvent`, which no-ops without granted consent.
+**Pixel:** `fbq` loads only after Accept all. Reject / withdraw calls `fbq('consent','revoke')`, clears the client event queue, and expires `_fbp` / `_fbc`. Re-accept grants again without a second script tag. PageView, ViewContent, AddToCart, InitiateCheckout, and Purchase all use `trackMetaEvent`, which no-ops without granted consent. Every Pixel call includes an `eventID`.
 
-**CAPI:** Checkout reads the **consent cookie on the request**, not the client JSON flag. If marketing is not granted, the order stores `marketing_consent=false` and does not keep fbp/fbc/IP/UA for Meta. `shouldEnqueueCapiPurchase` requires that stored flag plus a verified prepaid paid order. Rejecting later does not rewrite past orders; it stops new Pixel events and new matching on future checkouts.
+**CAPI (all Pixel events):** The same `eventID` is POSTed immediately to `/api/meta/capi`, which sends Graph `/{pixel}/events` in that request. This does **not** use a Vercel cron. Hobby’s single daily cron stays `/api/cron/expire-orders` (and already drains any leftover Purchase outbox). Purchase is also enqueued in `meta_event_outbox` and processed right after payment so a Graph blip can retry without a second cron.
+
+Checkout still reads the **consent cookie on the request**, not the client JSON flag. Funnel CAPI uses `_fbp`/`_fbc`/IP/UA only (no email from the browser). Purchase CAPI from the outbox adds hashed email/phone/address when `marketing_consent` was stored true. Rejecting later does not rewrite past orders.
 
 This notice is not legal advice and does not by itself establish DPDP/GDPR compliance.
 
@@ -92,35 +94,36 @@ Live Meta Test Events still need a browser with Accept all and no ad blocker. Th
 
 `PageView` only means a page was viewed. Meta can tell product vs checkout from the **page URL** on that PageView, but it does **not** treat that as ViewContent / AddToCart / Purchase. Those require their own `fbq('track', …)` calls with ecommerce parameters.
 
-| Event | Trigger | Parameters |
-|---|---|---|
-| `PageView` | Consent + Pixel init; later App Router navigations | none |
-| `ViewContent` | Product detail for a real product | `content_ids`, `content_type=product`, `content_name`, `content_category`, `contents`, `value`, `currency=INR` |
-| `AddToCart` | After `addItem` succeeds (Add to cart and Buy now) | `content_ids`, `content_type`, `contents`, `value` of **this add**, `currency=INR` |
-| `InitiateCheckout` | Checkout with a hydrated non-empty cart, once per cart snapshot | above plus `num_items`; `value` is checkout total in INR |
-| `Purchase` | Order page after API shows prepaid `paid`; CAPI from DB outbox | stored totals, `order_id=public_id`, same `eventID` `purchase_{publicId}` |
-| `AddPaymentInfo` | Not sent (Razorpay modal open is not a reliable payment-info signal) | — |
-| `Search` | Not sent (no site search) | — |
+| Event | Pixel | Live CAPI | Example values (₹699 tee + 5% GST) |
+|---|---|---|---|
+| `PageView` | Yes | Yes, same `eventID` | no custom_data |
+| `ViewContent` | Yes | Yes | `value=699`, `currency=INR`, `content_ids=["black-oversized-tshirt"]` |
+| `AddToCart` | Yes | Yes | `value=699` for qty 1 (this add, not cart total) |
+| `InitiateCheckout` | Yes | Yes | `value=733.95`, `num_items=1`, `contents[{id, quantity:1, item_price:699}]` |
+| `Purchase` | Yes | Yes + outbox backup | `value=733.95`, `order_id=PT-…`, `eventID=purchase_{publicId}` |
+| `AddPaymentInfo` | No | No | Razorpay modal is not payment-info |
+| `Search` | No | No | no site search |
 
 IDs are **product slugs** (e.g. `black-oversized-tshirt`) until a Meta catalog exists.
 
 Events are queued if `window.fbq` is not ready yet (product `useEffect` runs before the layout Pixel loader). They flush after the stub is installed.
 
-### How to test in Events Manager
+### How to test parameter *values*
 
-1. Choose **Accept all** on the site (**Reject optional** = no Pixel).
-2. Events Manager → the Pixel → **Test events**. Overview and Ads Manager lag and often show only high-volume events (`PageView`).
-3. Open a product, add to cart, open checkout. Test events should list `ViewContent`, `AddToCart`, `InitiateCheckout` with parameters. Click an event for payload detail (IDs, value, currency).
-4. Finish **Set up events** in the dataset wizard after Meta has seen those names.
-5. Purchase needs a real prepaid paid order (or staging with Test Events code). Do not fake live purchases.
+The Events Manager “Set up events” panel only lists **parameter names** (`value`, `num_items`, `currency`, `contents`, `content_ids`, `content_type`). It does not show 699 / INR there.
+
+1. Local mock (no Meta login): `npm run test:capi` and `npm run test:meta`. These assert numeric values.
+2. Staging Test Events: set `META_CAPI_TEST_EVENT_CODE` (never in production). Accept all, then open a product → cart → checkout. In **Test events**, click a row to see payload values. Connection method should be Browser + Server when both Pixel and `/api/meta/capi` succeeded.
+3. Purchase still needs a real prepaid paid order (or staging). Do not fake live purchases.
 
 ### Diagnose missing events
 
 - Consent cookie `pt_ad_consent` must be `granted`.
 - DevTools Network: `facebook.com/tr` (browser) after each action.
 - Console: `typeof fbq` should be `function` after Accept.
-- Overview ≠ Test events. Connection method “Browser + Server” on PageView does not mean this app sends CAPI PageView (it does not).
-- CAPI Purchase needs `META_CAPI_ACCESS_TOKEN`, Graph `v25.0`, schema outbox applied, and checkout consent stored as true.
+- Overview ≠ Test events. Setup wizard names ≠ values; use Test events click-through or `npm run test:capi`.
+- Funnel CAPI needs `META_CAPI_ACCESS_TOKEN` and Accept all. Missing token or no consent returns `{ ok: false }` and Pixel still fires.
+- Purchase outbox still needs schema applied. Hobby cron is only `expire-orders` (daily); do not add `/api/cron/meta-capi` on Vercel Free.
 
 ### Environment
 
@@ -133,6 +136,29 @@ META_CAPI_WORKER_SECRET=
 
 Never use `NEXT_PUBLIC_` for those. Tokens stay server-only.
 
-**Why this vs alternatives:** a full-screen CMP overlay would block checkout. Auto-accept on scroll would not be a valid choice. Trusting `marketingConsent` in the checkout JSON would let a client enable CAPI after Reject optional. A second consent library would duplicate `pt_ad_consent`. Renaming PageView would break reporting. Firing ViewContent on every route would inflate catalog stats. Inline CAPI without an outbox drops purchases on Graph failures.
+**Why this vs alternatives:** Enqueueing PageView in the DB outbox would need a second cron and explode row volume; Hobby Vercel allows one daily cron, already used by `expire-orders`. Pixel-only events drop behind ad blockers. A dedicated `/api/cron/meta-capi` cron was rejected for Free/Hobby. Immediate Graph POST from `/api/meta/capi` plus Purchase outbox processed on payment is the selected path. Trusting `marketingConsent` in checkout JSON would let a client enable CAPI after Reject optional.
 
-**Checks:** `npm run test:meta`, `npm run test:pixel`, `npx tsc --noEmit`. Apply `supabase/schema.sql` for the outbox. Pixel Helper / live Test Events require a browser with consent and no ad blocker.
+**Checks:** `npm run test:meta`, `npm run test:capi`, `npm run test:pixel`, `npx tsc --noEmit`. Apply `supabase/schema.sql` for the Purchase outbox. Pixel Helper / live Test Events require a browser with consent and no ad blocker.
+
+## API efficiency
+
+Reviewed all App Router handlers under `src/app/api`. Behavior is unchanged: auth, expiry, payment, and CAPI still run the same checks. Independent I/O now overlaps so hot paths wait less.
+
+| Path | What was sequential | Now |
+|---|---|---|
+| `GET /api/orders/[publicId]`, cancel, `POST /api/checkout/verify` | cookie, order, session one after another | `Promise.all` |
+| `getOrderByPublicId` | items fetch, then a second orders fetch | both after expire, in parallel |
+| `getCustomerFromCookie` | session row, then users row | one PostgREST embed |
+| `POST /api/checkout` | Meta attribution, then customer upsert | parallel |
+| `completeCapturedPayment` | emails, then CAPI outbox | parallel (each still try/caught) |
+
+Left sequential on purpose (changing order would change outcomes):
+
+- `expireStaleOrders` before stock/account/admin reads, so holds are released first
+- Daily cron: emails, then refunds, then Meta (a failed email step still skips the later jobs)
+- `/api/meta/capi` parse → consent → Graph (Graph cannot start earlier)
+- OTP consume before session write
+
+**Why not** skip expire on `GET /api/variants` or add a second cron: shop stock would briefly include expired holds; Hobby Vercel already has one daily cron.
+
+**Checks:** `npx tsc --noEmit`, `npm run test:meta`, `npm run test:pixel`. Live Razorpay/Supabase checkout was not re-run in this pass.

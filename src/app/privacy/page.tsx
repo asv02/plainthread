@@ -30,10 +30,11 @@ export default function PrivacyPage() {
         </p>
         <p>
           <strong>Marketing</strong> cookies are optional. If you choose Accept all, we load
-          the Meta Pixel in your browser and, for prepaid paid orders, may send a matching
-          Purchase event to Meta’s Conversions API. Matching uses hashed email and phone,
-          plus Meta cookies (_fbp/_fbc) when present. We do not send that matching data if
-          you chose Reject optional.
+          the Meta Pixel in your browser and may send matching Conversions API events
+          (PageView, ViewContent, AddToCart, InitiateCheckout, and Purchase). Funnel events
+          use Meta cookies (_fbp/_fbc) and request IP/user-agent. Prepaid paid orders may
+          also send hashed email and phone for Purchase matching. We do not send that
+          matching data if you chose Reject optional.
         </p>
         <p>
           We do not treat closing the browser, navigating, or ignoring the notice as

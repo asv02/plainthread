@@ -27,9 +27,11 @@ export async function POST(
       accessToken?: string;
       reason?: string;
     };
-    const payload = await getOrderByPublicId(publicId);
-    const user = await getCustomerFromCookie();
-    const cookieToken = await readOrderAccessToken(publicId);
+    const [payload, user, cookieToken] = await Promise.all([
+      getOrderByPublicId(publicId),
+      getCustomerFromCookie(),
+      readOrderAccessToken(publicId),
+    ]);
     const auth = orderAuthorized(payload, body.accessToken || cookieToken, user);
     if (!payload || !auth.ok) {
       flow.fail("not found or unauthorized", { publicId });

@@ -115,35 +115,40 @@ export async function POST(request: Request) {
       reused: payload.order.razorpay_order_id ? true : false,
     });
 
-    try {
-      const marketingConsent = isMarketingConsentGrantedFromHeader(
-        request.headers.get("cookie"),
-      );
-      await saveOrderAttribution(payload.order.id, {
-        marketingConsent,
-        fbp: marketingConsent ? validateFbp(typeof body.fbp === "string" ? body.fbp : null) : null,
-        fbc: marketingConsent ? validateFbc(typeof body.fbc === "string" ? body.fbc : null) : null,
-        ip: marketingConsent ? trustedClientIp(request) : null,
-        userAgent: marketingConsent ? requestUserAgent(request) : null,
-      });
-    } catch (error) {
-      flow.debug("attribution save skipped", { error: errMessage(error) });
-    }
-
-    try {
-      const userId = await upsertCustomer({
-        email: payload.order.email,
-        phone: payload.order.phone,
-        name: payload.order.customer_name,
-      });
-      if (!payload.order.user_id) {
-        await supabaseAdmin().from("orders").update({ user_id: userId }).eq("id", payload.order.id);
-        payload.order.user_id = userId;
-      }
-      flow.step("order linked to user", { publicId: payload.order.public_id, userId });
-    } catch (error) {
-      flow.debug("user link skipped", { error: errMessage(error) });
-    }
+    await Promise.all([
+      (async () => {
+        try {
+          const marketingConsent = isMarketingConsentGrantedFromHeader(
+            request.headers.get("cookie"),
+          );
+          await saveOrderAttribution(payload.order.id, {
+            marketingConsent,
+            fbp: marketingConsent ? validateFbp(typeof body.fbp === "string" ? body.fbp : null) : null,
+            fbc: marketingConsent ? validateFbc(typeof body.fbc === "string" ? body.fbc : null) : null,
+            ip: marketingConsent ? trustedClientIp(request) : null,
+            userAgent: marketingConsent ? requestUserAgent(request) : null,
+          });
+        } catch (error) {
+          flow.debug("attribution save skipped", { error: errMessage(error) });
+        }
+      })(),
+      (async () => {
+        try {
+          const userId = await upsertCustomer({
+            email: payload.order.email,
+            phone: payload.order.phone,
+            name: payload.order.customer_name,
+          });
+          if (!payload.order.user_id) {
+            await supabaseAdmin().from("orders").update({ user_id: userId }).eq("id", payload.order.id);
+            payload.order.user_id = userId;
+          }
+          flow.step("order linked to user", { publicId: payload.order.public_id, userId });
+        } catch (error) {
+          flow.debug("user link skipped", { error: errMessage(error) });
+        }
+      })(),
+    ]);
 
     if (isConfirmedOrder(payload.order)) {
       flow.done("already confirmed; skip new payment", {

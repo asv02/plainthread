@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { catalogProductId, paiseToRupees } from "@/lib/meta/catalog";
+import { newMetaEventId } from "@/lib/meta/events";
 import { PIXEL_READY_EVENT, trackInitiateCheckout } from "@/lib/meta-pixel-client";
 import { AD_CONSENT_EVENT } from "@/lib/meta/consent";
 import { getProduct } from "@/data/products";
@@ -17,6 +18,7 @@ export function InitiateCheckoutPixel({
   hydrated: boolean;
 }) {
   const lastKey = useRef("");
+  const eventIds = useRef(new Map<string, string>());
 
   useEffect(() => {
     function trySend() {
@@ -40,7 +42,9 @@ export function InitiateCheckoutPixel({
       } catch {
         // ignore
       }
-      if (!trackInitiateCheckout({ contents, value: paiseToRupees(totalPaise) })) return;
+      const eventID = eventIds.current.get(key) ?? newMetaEventId("ic");
+      eventIds.current.set(key, eventID);
+      if (!trackInitiateCheckout({ contents, value: paiseToRupees(totalPaise) }, eventID)) return;
       lastKey.current = key;
       try {
         sessionStorage.setItem(`pt_meta_ic_${key}`, "1");

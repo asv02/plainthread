@@ -156,14 +156,14 @@ Shipping rupees, hold minutes, site URL, `razorpayConfigured()`, `simulatedPayme
 
 ### `src/lib/shop/orders.ts`
 
-Thin wrappers around Supabase. Throws on PostgREST errors. `expireStaleOrders` tries `p_exclude_id`; if the live DB still has the old zero-arg function (`PGRST202`), it falls back.
+Thin wrappers around Supabase. Throws on PostgREST errors. `expireStaleOrders` tries `p_exclude_id`; if the live DB still has the old zero-arg function (`PGRST202`), it falls back. `getOrderByPublicId` expires holds, then loads items and a fresh order row in parallel.
 
 ### `src/lib/shop/complete-payment.ts`
 
 `completeCapturedPayment(orderId, paymentId)`:
 
 1. RPC `mark_order_paid`
-2. On `paid` / `already_paid` → send customer + ops email (skip sides already flagged)
+2. On `paid` / `already_paid` → customer + ops email in parallel with Purchase CAPI enqueue/process (failures are isolated)
 3. On `already_paid` with a **different** payment id → refund the extra capture
 4. On `late_payment` (order already cancelled) → refund this capture
 

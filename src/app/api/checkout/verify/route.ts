@@ -34,9 +34,12 @@ export async function POST(request: Request) {
       hasOrderId: Boolean(body.razorpay_order_id),
     });
 
-    const payload = await getOrderByPublicId(body.publicId ?? "");
-    const cookieToken = await readOrderAccessToken(body.publicId ?? "");
-    const user = await getCustomerFromCookie();
+    const publicId = body.publicId ?? "";
+    const [payload, cookieToken, user] = await Promise.all([
+      getOrderByPublicId(publicId),
+      readOrderAccessToken(publicId),
+      getCustomerFromCookie(),
+    ]);
     const auth = orderAuthorized(payload, body.accessToken || cookieToken, user);
     if (!payload || !auth.ok) {
       flow.fail("order not found or access token mismatch", { publicId: body.publicId });

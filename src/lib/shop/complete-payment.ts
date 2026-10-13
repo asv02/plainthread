@@ -192,21 +192,30 @@ export async function completeCapturedPayment(orderId: string, paymentId: string
   });
 
   if (result.result === "paid" || result.result === "already_paid") {
-    try {
-      flow.step("send paid emails");
-      await deliverPaidOrderEmails(orderId);
-    } catch (error) {
-      log.error("complete-payment", "payment emails failed", { error: errMessage(error), orderId });
-    }
-    try {
-      await enqueuePurchaseOutbox(orderId);
-      await processMetaOutbox(5);
-    } catch (error) {
-      log.error("complete-payment", "meta purchase outbox failed", {
-        error: errMessage(error),
-        orderId,
-      });
-    }
+    await Promise.all([
+      (async () => {
+        try {
+          flow.step("send paid emails");
+          await deliverPaidOrderEmails(orderId);
+        } catch (error) {
+          log.error("complete-payment", "payment emails failed", {
+            error: errMessage(error),
+            orderId,
+          });
+        }
+      })(),
+      (async () => {
+        try {
+          await enqueuePurchaseOutbox(orderId);
+          await processMetaOutbox(5);
+        } catch (error) {
+          log.error("complete-payment", "meta purchase outbox failed", {
+            error: errMessage(error),
+            orderId,
+          });
+        }
+      })(),
+    ]);
   }
 
   if (

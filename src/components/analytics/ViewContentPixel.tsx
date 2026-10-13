@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { catalogProductId } from "@/lib/meta/catalog";
+import { newMetaEventId } from "@/lib/meta/events";
 import { PIXEL_READY_EVENT, trackViewContent } from "@/lib/meta-pixel-client";
 import { AD_CONSENT_EVENT } from "@/lib/meta/consent";
 
@@ -19,6 +20,7 @@ export function ViewContentPixel({
   priceRupees: number;
 }) {
   const sent = useRef(false);
+  const eventId = useRef(newMetaEventId("vc"));
 
   useEffect(() => {
     function trySend() {
@@ -33,7 +35,7 @@ export function ViewContentPixel({
       }
       const id = catalogProductId(slug);
       if (!id || !Number.isFinite(priceRupees)) return;
-      if (!trackViewContent({ id, name, priceRupees })) return;
+      if (!trackViewContent({ id, name, priceRupees }, eventId.current)) return;
       sent.current = true;
       try {
         sessionStorage.setItem(storageKey(slug), "1");

@@ -12,6 +12,8 @@ const requiredFiles = [
   "src/lib/meta-pixel.ts",
   "src/lib/meta-pixel-client.ts",
   "src/lib/meta-capi.ts",
+  "src/lib/meta/browser-capi.ts",
+  "src/app/api/meta/capi/route.ts",
   "src/components/analytics/MetaPixel.tsx",
   "src/components/analytics/MetaPixelLoader.tsx",
   "src/components/analytics/MetaPixelPageView.tsx",
@@ -43,7 +45,7 @@ const loader = fs.readFileSync(
   "utf8",
 );
 assert(loader.includes("init"), "loader initializes fbq after consent");
-assert(loader.includes("PageView"), "loader tracks PageView after consent");
+assert(loader.includes("trackMetaEvent"), "loader tracks PageView after consent via shared helper");
 assert(loader.includes("connect.facebook.net/en_US/fbevents.js"), "loader loads fbevents.js");
 
 const pageView = fs.readFileSync(
@@ -63,7 +65,17 @@ assert(client.includes("hasSensitiveQuery"), "browser helper blocks token query 
 assert(client.includes("flushMetaPixelQueue"), "browser helper queues until Pixel is ready");
 assert(client.includes("ViewContent"), "browser helper can track ViewContent");
 assert(client.includes("AddToCart"), "browser helper can track AddToCart");
+assert(client.includes("/api/meta/capi"), "browser helper POSTs CAPI with the same eventID");
+assert(client.includes("eventID"), "browser helper always sends Pixel eventID");
 assert(!client.includes("NEXT_PUBLIC_META_CAPI"), "CAPI token is not in client helper");
+
+const capiRoute = fs.readFileSync(path.join(root, "src/app/api/meta/capi/route.ts"), "utf8");
+assert(capiRoute.includes("sendCapiEvents"), "live CAPI route posts to Graph immediately");
+assert(capiRoute.includes("buildBrowserCapiEvent"), "live CAPI route uses consent-gated builder");
+
+const vercel = fs.readFileSync(path.join(root, "vercel.json"), "utf8");
+assert(vercel.includes("/api/cron/expire-orders"), "Hobby cron remains expire-orders only");
+assert(!vercel.includes("/api/cron/meta-capi"), "meta-capi is not a second Vercel cron");
 
 const viewContent = fs.readFileSync(
   path.join(root, "src/components/analytics/ViewContentPixel.tsx"),

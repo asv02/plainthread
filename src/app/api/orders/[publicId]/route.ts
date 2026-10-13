@@ -15,11 +15,13 @@ export async function GET(
 ) {
   const { publicId } = await context.params;
   const queryToken = new URL(request.url).searchParams.get("token") ?? "";
-  const cookieToken = await readOrderAccessToken(publicId);
+  log.info("get-order", "start", { publicId, hasQueryToken: Boolean(queryToken) });
+  const [cookieToken, payload, user] = await Promise.all([
+    readOrderAccessToken(publicId),
+    getOrderByPublicId(publicId),
+    getCustomerFromCookie(),
+  ]);
   const token = queryToken || cookieToken;
-  log.info("get-order", "start", { publicId, hasToken: Boolean(token) });
-  const payload = await getOrderByPublicId(publicId);
-  const user = await getCustomerFromCookie();
   const auth = orderAuthorized(payload, token, user);
   if (!payload || !auth.ok) {
     log.info("get-order", "not found or unauthorized", {

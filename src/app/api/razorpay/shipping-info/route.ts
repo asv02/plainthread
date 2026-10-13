@@ -53,9 +53,9 @@ function shippingResponse(addresses: Address[]) {
   return { addresses: rows };
 }
 
-export async function GET(request: Request) {
+async function handle(request: Request, method: "get" | "post") {
   const body = await readBody(request);
-  log.info("magic-shipping", "get", {
+  log.info("magic-shipping", method, {
     orderId: body.order_id || body.razorpay_order_id,
     addresses: body.addresses.length,
     zips: body.addresses.map((row) => row.zipcode).filter(Boolean),
@@ -64,13 +64,10 @@ export async function GET(request: Request) {
   return NextResponse.json(shippingResponse(body.addresses));
 }
 
+export async function GET(request: Request) {
+  return handle(request, "get");
+}
+
 export async function POST(request: Request) {
-  const body = await readBody(request);
-  log.info("magic-shipping", "post", {
-    orderId: body.order_id || body.razorpay_order_id,
-    addresses: body.addresses.length,
-    zips: body.addresses.map((row) => row.zipcode).filter(Boolean),
-    codEnabled: codEnabled(),
-  });
-  return NextResponse.json(shippingResponse(body.addresses));
+  return handle(request, "post");
 }

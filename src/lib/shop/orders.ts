@@ -196,13 +196,15 @@ export async function getOrderByPublicId(publicId: string) {
   if (error) throw new Error(error.message);
   if (!order) return null;
   await expireStaleOrders(order.id);
-  const { data: items, error: itemsError } = await db
-    .from("order_items")
-    .select("*")
-    .eq("order_id", order.id);
-  if (itemsError) throw new Error(itemsError.message);
-  const { data: fresh } = await db.from("orders").select("*").eq("id", order.id).maybeSingle();
-  return { order: (fresh ?? order) as OrderPayload["order"], items: items ?? [] } as OrderPayload;
+  const [itemsResult, freshResult] = await Promise.all([
+    db.from("order_items").select("*").eq("order_id", order.id),
+    db.from("orders").select("*").eq("id", order.id).maybeSingle(),
+  ]);
+  if (itemsResult.error) throw new Error(itemsResult.error.message);
+  return {
+    order: (freshResult.data ?? order) as OrderPayload["order"],
+    items: itemsResult.data ?? [],
+  } as OrderPayload;
 }
 
 export async function getOrderPayloadById(orderId: string) {

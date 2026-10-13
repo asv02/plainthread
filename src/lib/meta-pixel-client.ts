@@ -1,12 +1,17 @@
 "use client";
 
 import { readAdConsentFromCookieString } from "@/lib/meta/consent";
+import { readBrowserMetaCookies } from "@/lib/meta/fbp-fbc";
 import {
-  META_CONTENT_CATEGORY,
-  META_CONTENT_TYPE,
-  META_CURRENCY,
-  type MetaContentItem,
-} from "@/lib/meta/catalog";
+  addToCartCustomData,
+  eventIdPrefix,
+  initiateCheckoutCustomData,
+  newMetaEventId,
+  pickCustomData,
+  type PixelEventName,
+  viewContentCustomData,
+} from "@/lib/meta/events";
+import type { MetaContentItem } from "@/lib/meta/catalog";
 
 type Fbq = ((...args: unknown[]) => void) & {
   callMethod?: (...args: unknown[]) => void;
@@ -25,13 +30,14 @@ declare global {
 export const PIXEL_READY_EVENT = "pt-meta-pixel-ready";
 
 type Queued = {
-  event: "PageView" | "ViewContent" | "AddToCart" | "InitiateCheckout" | "Purchase";
+  event: PixelEventName;
   params?: Record<string, unknown>;
-  eventID?: string;
+  eventID: string;
 };
 
 const queue: Queued[] = [];
 const MAX_QUEUE = 20;
+const postedEventIds = new Set<string>();
 
 function consentGranted() {
   if (typeof document === "undefined") return false;
@@ -44,38 +50,46 @@ function hasSensitiveQuery() {
   return Boolean(params.get("token") || params.get("otp") || params.get("access_token"));
 }
 
-const CUSTOM_KEYS = new Set([
-  "content_ids",
-  "content_type",
-  "content_name",
-  "content_category",
-  "contents",
-  "value",
-  "currency",
-  "num_items",
-  "order_id",
-  "tax",
-  "shipping",
-]);
+export { pickCustomData };
 
-export function pickCustomData(data: Record<string, unknown>) {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(data)) {
-    if (!CUSTOM_KEYS.has(key) || value == null) continue;
-    out[key] = value;
+function currentSourceUrl() {
+  if (typeof window === "undefined") return "";
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function postBrowserCapi(item: Queued) {
+  if (typeof window === "undefined") return;
+  if (postedEventIds.has(item.eventID)) return;
+  postedEventIds.add(item.eventID);
+  if (postedEventIds.size > 80) {
+    const first = postedEventIds.values().next().value;
+    if (first) postedEventIds.delete(first);
   }
-  return out;
+  const cookies = readBrowserMetaCookies();
+  const body = JSON.stringify({
+    event_name: item.event,
+    event_id: item.eventID,
+    event_source_url: currentSourceUrl(),
+    custom_data: item.params,
+    fbp: cookies.fbp,
+    fbc: cookies.fbc,
+  });
+  void fetch("/api/meta/capi", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+    credentials: "same-origin",
+    keepalive: true,
+  }).catch(() => {});
 }
 
 function callFbq(item: Queued) {
   if (typeof window.fbq !== "function") return false;
-  if (item.eventID) {
-    window.fbq("track", item.event, item.params ?? {}, { eventID: item.eventID });
-  } else if (item.params) {
-    window.fbq("track", item.event, item.params);
-  } else {
-    window.fbq("track", item.event);
-  }
+  window.fbq("track", item.event, item.params ?? {}, { eventID: item.eventID });
+  postBrowserCapi(item);
   return true;
 }
 
@@ -99,7 +113,7 @@ export function clearMetaPixelQueue() {
  * a sensitive URL blocks the event.
  */
 export function trackMetaEvent(
-  event: Queued["event"],
+  event: PixelEventName,
   data?: Record<string, unknown>,
   eventID?: string,
 ) {
@@ -107,7 +121,8 @@ export function trackMetaEvent(
     if (!consentGranted()) return false;
     if (hasSensitiveQuery()) return false;
     const params = data ? pickCustomData(data) : undefined;
-    const item: Queued = { event, params, eventID };
+    const id = eventID && eventID.length >= 8 ? eventID : newMetaEventId(eventIdPrefix(event));
+    const item: Queued = { event, params, eventID: id };
     if (typeof window.fbq !== "function") {
       if (queue.length < MAX_QUEUE) queue.push(item);
       return true;
@@ -126,50 +141,32 @@ export type ViewContentInput = {
   category?: string;
 };
 
-export function trackViewContent(input: ViewContentInput) {
+export function trackViewContent(input: ViewContentInput, eventID?: string) {
   if (!input.id || !Number.isFinite(input.priceRupees)) return false;
-  return trackMetaEvent("ViewContent", {
-    content_ids: [input.id],
-    content_type: META_CONTENT_TYPE,
-    content_name: input.name,
-    content_category: input.category ?? META_CONTENT_CATEGORY,
-    contents: [{ id: input.id, quantity: 1, item_price: input.priceRupees }],
-    value: input.priceRupees,
-    currency: META_CURRENCY,
-  });
+  return trackMetaEvent("ViewContent", viewContentCustomData(input), eventID);
 }
 
-export function trackAddToCart(input: {
-  id: string;
-  quantity: number;
-  itemPriceRupees: number;
-}) {
+export function trackAddToCart(
+  input: {
+    id: string;
+    quantity: number;
+    itemPriceRupees: number;
+  },
+  eventID?: string,
+) {
   if (!input.id || input.quantity < 1) return false;
-  return trackMetaEvent("AddToCart", {
-    content_ids: [input.id],
-    content_type: META_CONTENT_TYPE,
-    contents: [
-      { id: input.id, quantity: input.quantity, item_price: input.itemPriceRupees },
-    ] satisfies MetaContentItem[],
-    value: input.itemPriceRupees * input.quantity,
-    currency: META_CURRENCY,
-  });
+  return trackMetaEvent("AddToCart", addToCartCustomData(input), eventID);
 }
 
-export function trackInitiateCheckout(input: {
-  contents: MetaContentItem[];
-  value: number;
-}) {
+export function trackInitiateCheckout(
+  input: {
+    contents: MetaContentItem[];
+    value: number;
+  },
+  eventID?: string,
+) {
   if (input.contents.length === 0) return false;
-  const numItems = input.contents.reduce((sum, item) => sum + item.quantity, 0);
-  return trackMetaEvent("InitiateCheckout", {
-    content_ids: input.contents.map((item) => item.id),
-    content_type: META_CONTENT_TYPE,
-    contents: input.contents,
-    value: input.value,
-    currency: META_CURRENCY,
-    num_items: numItems,
-  });
+  return trackMetaEvent("InitiateCheckout", initiateCheckoutCustomData(input), eventID);
 }
 
 export function trackPurchase(input: Record<string, unknown>, eventID: string) {

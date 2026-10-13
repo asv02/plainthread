@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { META_PIXEL_ID } from "@/lib/meta-pixel";
 import { AD_CONSENT_EVENT, readAdConsentFromCookieString } from "@/lib/meta/consent";
 import { expireOptionalMetaCookies } from "@/lib/meta/consent-browser";
-import { clearMetaPixelQueue, flushMetaPixelQueue } from "@/lib/meta-pixel-client";
+import { clearMetaPixelQueue, flushMetaPixelQueue, trackMetaEvent } from "@/lib/meta-pixel-client";
 
 type FbqFn = ((...args: unknown[]) => void) & {
   callMethod?: (...args: unknown[]) => void;
@@ -71,11 +71,11 @@ export function MetaPixelLoader() {
       }
       window.fbq?.("consent", "grant");
       window.fbq?.("init", META_PIXEL_ID);
-      window.fbq?.("track", "PageView");
     } else {
       window.fbq?.("consent", "grant");
     }
 
+    trackMetaEvent("PageView");
     flushMetaPixelQueue();
   }, [granted]);
 

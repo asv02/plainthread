@@ -1,5 +1,6 @@
 import {
   catalogProductId,
+  META_CONTENT_CATEGORY,
   META_CONTENT_TYPE,
   META_CURRENCY,
   paiseToRupees,
@@ -7,7 +8,115 @@ import {
 } from "@/lib/meta/catalog";
 import { siteConfig } from "@/data/site";
 
+export const PIXEL_EVENT_NAMES = [
+  "PageView",
+  "ViewContent",
+  "AddToCart",
+  "InitiateCheckout",
+  "Purchase",
+] as const;
+
+export type PixelEventName = (typeof PIXEL_EVENT_NAMES)[number];
+
 export const PURCHASE_EVENT_NAME = "Purchase" as const;
+
+const CUSTOM_KEYS = new Set([
+  "content_ids",
+  "content_type",
+  "content_name",
+  "content_category",
+  "contents",
+  "value",
+  "currency",
+  "num_items",
+  "order_id",
+  "tax",
+  "shipping",
+]);
+
+export function isPixelEventName(value: string): value is PixelEventName {
+  return (PIXEL_EVENT_NAMES as readonly string[]).includes(value);
+}
+
+export function pickCustomData(data: Record<string, unknown>) {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (!CUSTOM_KEYS.has(key) || value == null) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+export function newMetaEventId(prefix: string) {
+  const rand =
+    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${rand}`.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 64);
+}
+
+export function eventIdPrefix(event: PixelEventName) {
+  switch (event) {
+    case "PageView":
+      return "pv";
+    case "ViewContent":
+      return "vc";
+    case "AddToCart":
+      return "atc";
+    case "InitiateCheckout":
+      return "ic";
+    case "Purchase":
+      return "purchase";
+  }
+}
+
+export function isValidMetaEventId(value: string) {
+  return /^[A-Za-z0-9._-]{8,64}$/.test(value);
+}
+
+export function viewContentCustomData(input: {
+  id: string;
+  name: string;
+  priceRupees: number;
+  category?: string;
+}) {
+  return {
+    content_ids: [input.id],
+    content_type: META_CONTENT_TYPE,
+    content_name: input.name,
+    content_category: input.category ?? META_CONTENT_CATEGORY,
+    contents: [{ id: input.id, quantity: 1, item_price: input.priceRupees }],
+    value: input.priceRupees,
+    currency: META_CURRENCY,
+  };
+}
+
+export function addToCartCustomData(input: {
+  id: string;
+  quantity: number;
+  itemPriceRupees: number;
+}) {
+  return {
+    content_ids: [input.id],
+    content_type: META_CONTENT_TYPE,
+    contents: [{ id: input.id, quantity: input.quantity, item_price: input.itemPriceRupees }],
+    value: input.itemPriceRupees * input.quantity,
+    currency: META_CURRENCY,
+  };
+}
+
+export function initiateCheckoutCustomData(input: {
+  contents: MetaContentItem[];
+  value: number;
+}) {
+  const numItems = input.contents.reduce((sum, item) => sum + item.quantity, 0);
+  return {
+    content_ids: input.contents.map((item) => item.id),
+    content_type: META_CONTENT_TYPE,
+    contents: input.contents,
+    value: input.value,
+    currency: META_CURRENCY,
+    num_items: numItems,
+  };
+}
 
 export function purchaseEventId(publicId: string) {
   return `purchase_${publicId}`;
