@@ -47,6 +47,13 @@ export type DbOrder = {
   customer_email_sent_at: string | null;
   ops_email_sent_at: string | null;
   user_id: string | null;
+  meta_fbp: string | null;
+  meta_fbc: string | null;
+  meta_client_ip_address: string | null;
+  meta_client_user_agent: string | null;
+  marketing_consent: boolean | null;
+  marketing_consent_at: string | null;
+  marketing_consent_source: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -75,7 +82,18 @@ export type CartLine = {
   qty: number;
 };
 
-export type AdminOrder = Omit<DbOrder, "access_token" | "idempotency_key"> & {
+export type AdminOrder = Omit<
+  DbOrder,
+  | "access_token"
+  | "idempotency_key"
+  | "meta_fbp"
+  | "meta_fbc"
+  | "meta_client_ip_address"
+  | "meta_client_user_agent"
+  | "marketing_consent"
+  | "marketing_consent_at"
+  | "marketing_consent_source"
+> & {
   items: DbOrderItem[];
 };
 
@@ -104,6 +122,7 @@ export type PublicOrder = {
   totalPaise: number;
   currency: string;
   holdExpiresAt: string | null;
+  paidAt: string | null;
   createdAt: string;
   failureReason: string | null;
   items: Array<{

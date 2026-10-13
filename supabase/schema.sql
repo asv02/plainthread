@@ -945,24 +945,39 @@ begin
 end;
 $$;
 
-insert into public.variants (product_slug, size, sku, stock) values
-  ('black-oversized-tshirt', 'S', 'PT-OTS-001-JB-S', 20),
-  ('black-oversized-tshirt', 'M', 'PT-OTS-001-JB-M', 20),
-  ('black-oversized-tshirt', 'L', 'PT-OTS-001-JB-L', 20),
-  ('black-oversized-tshirt', 'XL', 'PT-OTS-001-JB-XL', 20),
-  ('black-oversized-tshirt', 'XXL', 'PT-OTS-001-JB-XXL', 20),
-  ('white-oversized-tshirt', 'S', 'PT-OTS-001-SW-S', 20),
-  ('white-oversized-tshirt', 'M', 'PT-OTS-001-SW-M', 20),
-  ('white-oversized-tshirt', 'L', 'PT-OTS-001-SW-L', 20),
-  ('white-oversized-tshirt', 'XL', 'PT-OTS-001-SW-XL', 20),
-  ('white-oversized-tshirt', 'XXL', 'PT-OTS-001-SW-XXL', 20),
-  ('pink-oversized-tshirt', 'S', 'PT-OTS-001-RP-S', 20),
-  ('pink-oversized-tshirt', 'M', 'PT-OTS-001-RP-M', 20),
-  ('pink-oversized-tshirt', 'L', 'PT-OTS-001-RP-L', 20),
-  ('pink-oversized-tshirt', 'XL', 'PT-OTS-001-RP-XL', 20),
-  ('pink-oversized-tshirt', 'XXL', 'PT-OTS-001-RP-XXL', 20)
-on conflict (product_slug, size) do update
-  set sku = excluded.sku;
+-- Seed only missing catalog rows. An existing variant (same product + size, or same sku)
+-- is skipped, so maintained sku and stock are left unchanged.
+insert into public.variants (product_slug, size, sku, stock)
+select seed.product_slug, seed.size, seed.sku, seed.stock
+from (
+  values
+    ('black-oversized-tshirt', 'S', 'PT-OTS-001-JB-S', 20),
+    ('black-oversized-tshirt', 'M', 'PT-OTS-001-JB-M', 20),
+    ('black-oversized-tshirt', 'L', 'PT-OTS-001-JB-L', 20),
+    ('black-oversized-tshirt', 'XL', 'PT-OTS-001-JB-XL', 20),
+    ('black-oversized-tshirt', 'XXL', 'PT-OTS-001-JB-XXL', 20),
+    ('white-oversized-tshirt', 'S', 'PT-OTS-001-SW-S', 20),
+    ('white-oversized-tshirt', 'M', 'PT-OTS-001-SW-M', 20),
+    ('white-oversized-tshirt', 'L', 'PT-OTS-001-SW-L', 20),
+    ('white-oversized-tshirt', 'XL', 'PT-OTS-001-SW-XL', 20),
+    ('white-oversized-tshirt', 'XXL', 'PT-OTS-001-SW-XXL', 20),
+    ('pink-oversized-tshirt', 'S', 'PT-OTS-001-RP-S', 20),
+    ('pink-oversized-tshirt', 'M', 'PT-OTS-001-RP-M', 20),
+    ('pink-oversized-tshirt', 'L', 'PT-OTS-001-RP-L', 20),
+    ('pink-oversized-tshirt', 'XL', 'PT-OTS-001-RP-XL', 20),
+    ('pink-oversized-tshirt', 'XXL', 'PT-OTS-001-RP-XXL', 20)
+) as seed(product_slug, size, sku, stock)
+where not exists (
+  select 1
+  from public.variants existing
+  where existing.product_slug = seed.product_slug
+    and existing.size = seed.size
+)
+and not exists (
+  select 1
+  from public.variants existing
+  where existing.sku = seed.sku
+);
 
 revoke all on public.variants from anon, authenticated;
 revoke all on public.orders from anon, authenticated;
@@ -1002,3 +1017,219 @@ grant execute on function public.admin_set_parcel(uuid, text) to service_role;
 grant execute on function public.admin_set_payment(uuid, text) to service_role;
 grant execute on function public.order_payload(uuid) to service_role;
 grant execute on function public.upsert_customer(text, text, text) to service_role;
+
+-- Meta Pixel / CAPI attribution and durable Purchase outbox.
+alter table public.orders add column if not exists meta_fbp text;
+alter table public.orders add column if not exists meta_fbc text;
+alter table public.orders add column if not exists meta_client_ip_address text;
+alter table public.orders add column if not exists meta_client_user_agent text;
+alter table public.orders add column if not exists marketing_consent boolean;
+alter table public.orders add column if not exists marketing_consent_at timestamptz;
+alter table public.orders add column if not exists marketing_consent_source text;
+
+create table if not exists public.meta_event_outbox (
+  id uuid primary key default gen_random_uuid(),
+  event_name text not null,
+  event_id text not null,
+  order_id uuid not null references public.orders(id) on delete cascade,
+  status text not null default 'pending'
+    check (status in ('pending', 'processing', 'sent', 'retry', 'dead_letter')),
+  attempt_count integer not null default 0,
+  next_attempt_at timestamptz not null default now(),
+  last_http_status integer,
+  last_error_code text,
+  client_ip_address text,
+  client_user_agent text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  sent_at timestamptz,
+  unique (event_name, event_id)
+);
+
+create index if not exists meta_event_outbox_claim_idx
+  on public.meta_event_outbox (status, next_attempt_at);
+
+alter table public.meta_event_outbox enable row level security;
+revoke all on public.meta_event_outbox from anon, authenticated;
+
+create or replace function public.enqueue_meta_purchase(p_order_id uuid)
+returns void
+language plpgsql
+as $$
+declare
+  o public.orders%rowtype;
+begin
+  select * into o from public.orders where id = p_order_id;
+  if o.id is null then
+    return;
+  end if;
+  if o.status <> 'open' or o.payment_status <> 'paid' or o.payment_method <> 'prepaid' then
+    return;
+  end if;
+  if coalesce(o.marketing_consent, false) is not true then
+    return;
+  end if;
+  if o.razorpay_payment_id is not null and o.razorpay_payment_id like 'sim_%' then
+    return;
+  end if;
+
+  insert into public.meta_event_outbox (
+    event_name,
+    event_id,
+    order_id,
+    status,
+    next_attempt_at,
+    client_ip_address,
+    client_user_agent
+  ) values (
+    'Purchase',
+    'purchase_' || o.public_id,
+    o.id,
+    'pending',
+    now(),
+    o.meta_client_ip_address,
+    o.meta_client_user_agent
+  )
+  on conflict (event_name, event_id) do nothing;
+end;
+$$;
+
+create or replace function public.mark_order_paid(
+  p_order_id uuid,
+  p_payment_id text
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  s text;
+  method text;
+  pay_status text;
+  parcel text;
+  existing_payment text;
+begin
+  perform public.expire_stale_orders(p_order_id);
+
+  select status, payment_method, payment_status, parcel_status, razorpay_payment_id
+    into s, method, pay_status, parcel, existing_payment
+  from public.orders
+  where id = p_order_id
+  for update;
+
+  if s is null then
+    return jsonb_build_object('result', 'not_found');
+  end if;
+
+  if pay_status = 'paid' then
+    perform public.enqueue_meta_purchase(p_order_id);
+    return jsonb_build_object(
+      'result', 'already_paid',
+      'razorpay_payment_id', existing_payment,
+      'payload', public.order_payload(p_order_id)
+    );
+  end if;
+
+  if s = 'cancelled' then
+    if pay_status <> 'refunded' then
+      update public.orders
+      set
+        razorpay_payment_id = coalesce(razorpay_payment_id, p_payment_id),
+        payment_status = 'refund_pending',
+        failure_reason = coalesce(failure_reason, 'late_payment')
+      where id = p_order_id;
+    end if;
+    return jsonb_build_object('result', 'late_payment', 'payload', public.order_payload(p_order_id));
+  end if;
+
+  if method = 'cod' then
+    return jsonb_build_object('result', 'invalid_state', 'payload', public.order_payload(p_order_id));
+  end if;
+
+  if s <> 'open' or pay_status <> 'pending_payment' then
+    return jsonb_build_object('result', 'invalid_state', 'payload', public.order_payload(p_order_id));
+  end if;
+
+  update public.orders
+  set
+    payment_method = 'prepaid',
+    payment_status = 'paid',
+    razorpay_payment_id = coalesce(p_payment_id, razorpay_payment_id),
+    paid_at = now(),
+    failure_reason = null
+  where id = p_order_id;
+
+  perform public.enqueue_meta_purchase(p_order_id);
+
+  return jsonb_build_object('result', 'paid', 'payload', public.order_payload(p_order_id));
+end;
+$$;
+
+create or replace function public.claim_meta_event_outbox(p_limit integer)
+returns setof public.meta_event_outbox
+language plpgsql
+as $$
+begin
+  return query
+  with picked as (
+    select id
+    from public.meta_event_outbox
+    where (
+        status in ('pending', 'retry')
+        or (status = 'processing' and updated_at < now() - interval '10 minutes')
+      )
+      and next_attempt_at <= now()
+    order by next_attempt_at
+    limit greatest(1, least(coalesce(p_limit, 10), 50))
+    for update skip locked
+  )
+  update public.meta_event_outbox o
+  set status = 'processing', updated_at = now()
+  from picked
+  where o.id = picked.id
+  returning o.*;
+end;
+$$;
+
+create or replace function public.reconcile_meta_purchase_outbox()
+returns integer
+language plpgsql
+as $$
+declare
+  inserted integer;
+begin
+  insert into public.meta_event_outbox (
+    event_name,
+    event_id,
+    order_id,
+    status,
+    next_attempt_at,
+    client_ip_address,
+    client_user_agent
+  )
+  select
+    'Purchase',
+    'purchase_' || o.public_id,
+    o.id,
+    'pending',
+    now(),
+    o.meta_client_ip_address,
+    o.meta_client_user_agent
+  from public.orders o
+  where o.status = 'open'
+    and o.payment_status = 'paid'
+    and o.payment_method = 'prepaid'
+    and coalesce(o.marketing_consent, false) = true
+    and (o.razorpay_payment_id is null or o.razorpay_payment_id not like 'sim_%')
+  on conflict (event_name, event_id) do nothing;
+
+  get diagnostics inserted = row_count;
+  return inserted;
+end;
+$$;
+
+revoke all on function public.enqueue_meta_purchase(uuid) from public, anon, authenticated;
+revoke all on function public.claim_meta_event_outbox(integer) from public, anon, authenticated;
+revoke all on function public.reconcile_meta_purchase_outbox() from public, anon, authenticated;
+grant execute on function public.enqueue_meta_purchase(uuid) to service_role;
+grant execute on function public.claim_meta_event_outbox(integer) to service_role;
+grant execute on function public.reconcile_meta_purchase_outbox() to service_role;

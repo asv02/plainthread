@@ -101,6 +101,31 @@ export async function markPaymentFailed(orderId: string, reason: string) {
   });
 }
 
+export async function saveOrderAttribution(
+  orderId: string,
+  input: {
+    marketingConsent: boolean;
+    fbp: string | null;
+    fbc: string | null;
+    ip: string | null;
+    userAgent: string | null;
+  },
+) {
+  const { error } = await supabaseAdmin()
+    .from("orders")
+    .update({
+      meta_fbp: input.fbp,
+      meta_fbc: input.fbc,
+      meta_client_ip_address: input.ip,
+      meta_client_user_agent: input.userAgent,
+      marketing_consent: input.marketingConsent,
+      marketing_consent_at: new Date().toISOString(),
+      marketing_consent_source: "checkout",
+    })
+    .eq("id", orderId);
+  if (error) throw new Error(error.message);
+}
+
 export async function markOrderPaid(orderId: string, paymentId: string | null) {
   const { data, error } = await supabaseAdmin().rpc("mark_order_paid", {
     p_order_id: orderId,

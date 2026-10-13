@@ -2,16 +2,11 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-
-declare global {
-  interface Window {
-    fbq?: (...args: unknown[]) => void;
-  }
-}
+import { trackMetaEvent } from "@/lib/meta-pixel-client";
 
 /**
  * Fires Meta Pixel PageView on App Router client navigations.
- * Skips the first render so it does not duplicate the base snippet PageView.
+ * Skips the first render so it does not duplicate the loader PageView.
  */
 export function MetaPixelPageView() {
   const pathname = usePathname();
@@ -23,9 +18,7 @@ export function MetaPixelPageView() {
       isFirstRender.current = false;
       return;
     }
-
-    if (typeof window.fbq !== "function") return;
-    window.fbq("track", "PageView");
+    trackMetaEvent("PageView");
   }, [pathname, searchParams]);
 
   return null;

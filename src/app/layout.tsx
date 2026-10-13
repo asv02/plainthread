@@ -4,6 +4,7 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { ShopProvider } from "@/components/shop/ShopProvider";
 import { MetaPixel } from "@/components/analytics/MetaPixel";
+import { CookieConsent } from "@/components/analytics/CookieConsent";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { organizationSchema, websiteSchema } from "@/lib/schema";
 import { siteConfig } from "@/data/site";
@@ -66,6 +67,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Header />
           <main className="flex-1">{children}</main>
           <Footer />
+          <CookieConsent />
         </ShopProvider>
       </body>
     </html>

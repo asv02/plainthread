@@ -9,6 +9,9 @@ import { formatPrice } from "@/lib/utils";
 import { siteConfig } from "@/data/site";
 import { tryPriceCart } from "@/lib/shop/pricing";
 import { MoneyRows } from "@/components/shop/MoneyRows";
+import { InitiateCheckoutPixel } from "@/components/analytics/InitiateCheckoutPixel";
+import { readAdConsentFromCookieString } from "@/lib/meta/consent";
+import { readBrowserMetaCookies } from "@/lib/meta/fbp-fbc";
 import type { PublicOrder } from "@/lib/shop/types";
 
 type CheckoutResponse = {
@@ -16,7 +19,6 @@ type CheckoutResponse = {
   provider?: "razorpay" | "simulate";
   alreadyPaid?: boolean;
   order?: PublicOrder;
-  accessToken?: string;
   keyId?: string | null;
   razorpayOrderId?: string | null;
   order_id?: string | null;
@@ -38,14 +40,17 @@ function newCheckoutKey() {
   return crypto.randomUUID();
 }
 
-async function pollOrder(publicId: string, accessToken: string) {
+function marketingConsentGranted() {
+  if (typeof document === "undefined") return false;
+  return readAdConsentFromCookieString(document.cookie) === "granted";
+}
+
+async function pollOrder(publicId: string) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const res = await fetch(`/api/orders/${publicId}?token=${encodeURIComponent(accessToken)}`, {
-      cache: "no-store",
-    });
+    const res = await fetch(`/api/orders/${publicId}`, { cache: "no-store" });
     const data = (await res.json()) as CheckoutResponse;
     if (data.order && (data.order.paymentMethod || data.order.paymentStatus === "paid")) {
-      return { order: data.order, accessToken };
+      return data.order;
     }
     await new Promise((resolve) => setTimeout(resolve, 700));
   }
@@ -54,7 +59,7 @@ async function pollOrder(publicId: string, accessToken: string) {
 
 export function CheckoutForm() {
   const router = useRouter();
-  const { items, clearCart, refreshStock } = useShop();
+  const { items, clearCart, refreshStock, hydrated } = useShop();
   const busy = useRef(false);
   const keyRef = useRef<string>(newCheckoutKey());
   const verifyToken = useRef("");
@@ -113,9 +118,9 @@ export function CheckoutForm() {
   }, [items, form.state]);
   const totals = pricedCart.totals;
 
-  function goToOrder(order: PublicOrder, token: string) {
+  function goToOrder(order: PublicOrder) {
     clearCart();
-    router.push(`/orders/${order.publicId}?token=${token}`);
+    router.push(`/orders/${order.publicId}`);
   }
 
   async function sendCode(channel: "email" | "phone") {
@@ -178,6 +183,7 @@ export function CheckoutForm() {
     setLoading(true);
     setError("");
     try {
+      const cookies = readBrowserMetaCookies();
       const res = await fetch("/api/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -186,31 +192,33 @@ export function CheckoutForm() {
           items,
           customer: form,
           verifyToken: verifyToken.current,
+          marketingConsent: marketingConsentGranted(),
+          fbp: cookies.fbp,
+          fbc: cookies.fbc,
         }),
       });
       const data = (await res.json()) as CheckoutResponse;
       if (!res.ok) throw new Error(data.error || "Checkout failed");
 
-      if (data.alreadyPaid && data.order && data.accessToken) {
-        goToOrder(data.order, data.accessToken);
+      if (data.alreadyPaid && data.order) {
+        goToOrder(data.order);
         return;
       }
 
-      if (data.provider === "simulate" && data.order && data.accessToken) {
+      if (data.provider === "simulate" && data.order) {
         const verify = await fetch("/api/checkout/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             publicId: data.order.publicId,
-            accessToken: data.accessToken,
             simulate: true,
           }),
         });
         const verified = (await verify.json()) as CheckoutResponse;
-        if (!verify.ok || !verified.order || !verified.accessToken) {
+        if (!verify.ok || !verified.order) {
           throw new Error(verified.error || "Could not confirm test payment");
         }
-        goToOrder(verified.order, verified.accessToken);
+        goToOrder(verified.order);
         return;
       }
 
@@ -218,7 +226,6 @@ export function CheckoutForm() {
         throw new Error("Payment widget is still loading. Try again.");
       }
 
-      const accessToken = data.accessToken ?? "";
       const publicId = data.order?.publicId ?? "";
       const razorpayOrderId = data.order_id || data.razorpayOrderId;
       if (!razorpayOrderId) {
@@ -248,9 +255,9 @@ export function CheckoutForm() {
         modal: {
           ondismiss: () => {
             void (async () => {
-              const confirmed = await pollOrder(publicId, accessToken);
-              if (confirmed?.order && confirmed.accessToken) {
-                goToOrder(confirmed.order, confirmed.accessToken);
+              const confirmed = await pollOrder(publicId);
+              if (confirmed) {
+                goToOrder(confirmed);
                 return;
               }
               setError(
@@ -272,7 +279,6 @@ export function CheckoutForm() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 publicId,
-                accessToken,
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
@@ -285,13 +291,13 @@ export function CheckoutForm() {
               busy.current = false;
               return;
             }
-            if (!verify.ok || !verified.order || !verified.accessToken) {
+            if (!verify.ok || !verified.order) {
               setError(verified.error || "Payment received. Confirming… keep this page open.");
               setLoading(false);
               busy.current = false;
               return;
             }
-            goToOrder(verified.order, verified.accessToken);
+            goToOrder(verified.order);
             return;
           }
 
@@ -321,6 +327,11 @@ export function CheckoutForm() {
 
   return (
     <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
+      <InitiateCheckoutPixel
+        items={items}
+        totalPaise={totals?.totalPaise ?? null}
+        hydrated={hydrated}
+      />
       <Script
         src="https://checkout.razorpay.com/v1/magic-checkout.js"
         strategy="afterInteractive"

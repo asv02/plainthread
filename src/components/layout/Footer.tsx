@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import { footerLinks, siteConfig } from "@/data/site";
+import { AD_CONSENT_OPEN_EVENT } from "@/lib/meta/consent";
 
 export function Footer() {
   return (
@@ -53,7 +56,16 @@ export function Footer() {
       <div className="border-t border-border">
         <div className="container-px flex flex-col gap-2 py-6 text-xs text-secondary sm:flex-row sm:items-center sm:justify-between">
           <p>© 2026 {siteConfig.name}. All rights reserved.</p>
-          <p>220 GSM · 100% Combed Cotton · Chemical Safe</p>
+          <div className="flex gap-4">
+            <button
+              type="button"
+              className="underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
+              onClick={() => window.dispatchEvent(new Event(AD_CONSENT_OPEN_EVENT))}
+            >
+              Cookie Preferences
+            </button>
+            <p>220 GSM · 100% Combed Cotton · Chemical Safe</p>
+          </div>
         </div>
       </div>
     </footer>

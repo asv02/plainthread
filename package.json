@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:meta": "npx --yes tsx --test src/lib/meta/meta.test.ts",
     "test:pixel": "npx --yes tsx scripts/verify-meta-pixel.ts",
     "test:razorpay": "node scripts/verify-razorpay.mjs",
     "test:checkout": "node scripts/verify-http-checkout.mjs",

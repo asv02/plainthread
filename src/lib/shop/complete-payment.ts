@@ -11,6 +11,7 @@ import { razorpayConfigured } from "@/lib/shop/config";
 import { isConfirmedOrder } from "@/lib/shop/serialize";
 import type { OrderPayload } from "@/lib/shop/types";
 import { errMessage, log, startFlow } from "@/lib/log";
+import { enqueuePurchaseOutbox, processMetaOutbox } from "@/lib/meta/outbox";
 
 function storedPaymentId(result: {
   razorpay_payment_id?: string | null;
@@ -196,6 +197,15 @@ export async function completeCapturedPayment(orderId: string, paymentId: string
       await deliverPaidOrderEmails(orderId);
     } catch (error) {
       log.error("complete-payment", "payment emails failed", { error: errMessage(error), orderId });
+    }
+    try {
+      await enqueuePurchaseOutbox(orderId);
+      await processMetaOutbox(5);
+    } catch (error) {
+      log.error("complete-payment", "meta purchase outbox failed", {
+        error: errMessage(error),
+        orderId,
+      });
     }
   }
 

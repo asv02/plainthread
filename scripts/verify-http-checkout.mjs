@@ -9,9 +9,25 @@ const customer = {
 };
 const items = [{ productSlug: "white-oversized-tshirt", size: "L", qty: 1 }];
 const key = crypto.randomUUID();
+const cookieJar = [];
 
-async function json(url, options) {
-  const res = await fetch(url, options);
+function cookieHeader() {
+  return cookieJar.join("; ");
+}
+
+function storeCookies(res) {
+  const set = typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : [];
+  for (const raw of set) {
+    const pair = raw.split(";")[0];
+    if (pair) cookieJar.push(pair);
+  }
+}
+
+async function json(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (cookieHeader()) headers.cookie = cookieHeader();
+  const res = await fetch(url, { ...options, headers });
+  storeCookies(res);
   const data = await res.json();
   return { status: res.status, data };
 }
@@ -39,24 +55,26 @@ if (first.data.order.publicId !== second.data.order.publicId) {
   throw new Error("double click created two orders");
 }
 if (held !== start - 1) throw new Error(`expected hold ${start - 1}, got ${held}`);
+if (first.data.accessToken) throw new Error("checkout JSON must not include accessToken");
 
 const paid = await json("http://localhost:3000/api/checkout/verify", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     publicId: first.data.order.publicId,
-    accessToken: first.data.accessToken,
     simulate: true,
   }),
 });
-if (paid.data.order.status !== "paid") throw new Error("pay failed");
+if (paid.data.order.status !== "paid" && paid.data.order.paymentStatus !== "paid") {
+  throw new Error("pay failed");
+}
 
 const cancelled = await json(
   `http://localhost:3000/api/orders/${first.data.order.publicId}/cancel`,
   {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ accessToken: first.data.accessToken }),
+    body: JSON.stringify({}),
   },
 );
 if (cancelled.data.order.status !== "cancelled") throw new Error("cancel failed");
@@ -72,17 +90,13 @@ const pending = await json("http://localhost:3000/api/checkout", {
 await json(`http://localhost:3000/api/orders/${pending.data.order.publicId}/cancel`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    accessToken: pending.data.accessToken,
-    reason: "payment_modal_dismissed",
-  }),
+  body: JSON.stringify({ reason: "payment_modal_dismissed" }),
 });
 const late = await json("http://localhost:3000/api/checkout/verify", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     publicId: pending.data.order.publicId,
-    accessToken: pending.data.accessToken,
     simulate: true,
   }),
 });

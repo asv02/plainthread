@@ -2,8 +2,14 @@ import { NextResponse } from "next/server";
 import { verifyCheckoutSignature } from "@/lib/payments/razorpay";
 import { completeCapturedPayment } from "@/lib/shop/complete-payment";
 import { getOrderByPublicId } from "@/lib/shop/orders";
+import { getCustomerFromCookie } from "@/lib/shop/customers";
 import { simulatedPaymentsAllowed } from "@/lib/shop/config";
-import { timingSafeEqual, toPublicOrder } from "@/lib/shop/serialize";
+import { toPublicOrder } from "@/lib/shop/serialize";
+import {
+  jsonWithOrderAccess,
+  orderAuthorized,
+  readOrderAccessToken,
+} from "@/lib/shop/order-access";
 import { errMessage, startFlow } from "@/lib/log";
 
 export async function POST(request: Request) {
@@ -29,7 +35,10 @@ export async function POST(request: Request) {
     });
 
     const payload = await getOrderByPublicId(body.publicId ?? "");
-    if (!payload || !timingSafeEqual(payload.order.access_token, body.accessToken ?? "")) {
+    const cookieToken = await readOrderAccessToken(body.publicId ?? "");
+    const user = await getCustomerFromCookie();
+    const auth = orderAuthorized(payload, body.accessToken || cookieToken, user);
+    if (!payload || !auth.ok) {
       flow.fail("order not found or access token mismatch", { publicId: body.publicId });
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
@@ -48,11 +57,14 @@ export async function POST(request: Request) {
         paymentMethod: payload.order.payment_method,
         paymentStatus: payload.order.payment_status,
       });
-      return NextResponse.json({
-        result: payload.order.payment_method === "cod" ? "cod_confirmed" : "already_paid",
-        order: toPublicOrder(payload),
-        accessToken: payload.order.access_token,
-      });
+      return jsonWithOrderAccess(
+        {
+          result: payload.order.payment_method === "cod" ? "cod_confirmed" : "already_paid",
+          order: toPublicOrder(payload),
+        },
+        payload.order.public_id,
+        payload.order.access_token,
+      );
     }
 
     if (body.simulate) {
@@ -70,23 +82,30 @@ export async function POST(request: Request) {
         result: result.result,
       });
       if (result.result === "late_payment") {
-        return NextResponse.json({
-          result: "late_payment",
-          error:
-            "This payment arrived after the order was cancelled. It is being refunded automatically.",
-          order: result.payload ? toPublicOrder(result.payload) : undefined,
-          accessToken: result.payload?.order.access_token,
-        }, { status: 409 });
+        return jsonWithOrderAccess(
+          {
+            result: "late_payment",
+            error:
+              "This payment arrived after the order was cancelled. It is being refunded automatically.",
+            order: result.payload ? toPublicOrder(result.payload) : undefined,
+          },
+          result.payload?.order.public_id ?? payload.order.public_id,
+          result.payload?.order.access_token ?? payload.order.access_token,
+          { status: 409 },
+        );
       }
       if (!result.payload) {
         flow.fail("simulate missing payload", { publicId: payload.order.public_id });
         return NextResponse.json({ error: "Could not confirm payment" }, { status: 409 });
       }
-      return NextResponse.json({
-        result: result.result,
-        order: toPublicOrder(result.payload),
-        accessToken: result.payload.order.access_token,
-      });
+      return jsonWithOrderAccess(
+        {
+          result: result.result,
+          order: toPublicOrder(result.payload),
+        },
+        result.payload.order.public_id,
+        result.payload.order.access_token,
+      );
     }
 
     const fieldsMissing =
@@ -147,13 +166,17 @@ export async function POST(request: Request) {
         publicId: payload.order.public_id,
         result: result.result,
       });
-      return NextResponse.json({
-        result: "late_payment",
-        error:
-          "This payment arrived after the order was cancelled. It is being refunded automatically.",
-        order: result.payload ? toPublicOrder(result.payload) : undefined,
-        accessToken: result.payload?.order.access_token,
-      }, { status: 409 });
+      return jsonWithOrderAccess(
+        {
+          result: "late_payment",
+          error:
+            "This payment arrived after the order was cancelled. It is being refunded automatically.",
+          order: result.payload ? toPublicOrder(result.payload) : undefined,
+        },
+        result.payload?.order.public_id ?? payload.order.public_id,
+        result.payload?.order.access_token ?? payload.order.access_token,
+        { status: 409 },
+      );
     }
 
     if (!result.payload) {
@@ -169,11 +192,14 @@ export async function POST(request: Request) {
       result: result.result,
       paymentStatus: result.payload.order.payment_status,
     });
-    return NextResponse.json({
-      result: result.result,
-      order: toPublicOrder(result.payload),
-      accessToken: result.payload.order.access_token,
-    });
+    return jsonWithOrderAccess(
+      {
+        result: result.result,
+        order: toPublicOrder(result.payload),
+      },
+      result.payload.order.public_id,
+      result.payload.order.access_token,
+    );
   } catch (error) {
     flow.fail("failed", { error: errMessage(error) });
     return NextResponse.json(

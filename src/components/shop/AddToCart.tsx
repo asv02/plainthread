@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { MAX_LINE_QTY, SHOP_SIZES } from "@/data/shop";
 import { useShop } from "@/components/shop/ShopProvider";
 import { QtyStepper } from "@/components/shop/QtyStepper";
+import { getProduct } from "@/data/products";
+import { catalogProductId } from "@/lib/meta/catalog";
+import { trackAddToCart } from "@/lib/meta-pixel-client";
 import { cn } from "@/lib/utils";
 
 export function AddToCart({
@@ -26,6 +29,18 @@ export function AddToCart({
     if (stock == null) return 1;
     return Math.max(1, Math.min(MAX_LINE_QTY, stock));
   }, [stock]);
+  const product = getProduct(productSlug);
+
+  function addAndTrack() {
+    const result = addItem(productSlug, size, qty);
+    if (!result.added || !product) return false;
+    trackAddToCart({
+      id: catalogProductId(productSlug),
+      quantity: result.qtyAdded,
+      itemPriceRupees: product.price,
+    });
+    return true;
+  }
 
   function selectSize(option: (typeof SHOP_SIZES)[number]) {
     setSize(option);
@@ -90,7 +105,7 @@ export function AddToCart({
           type="button"
           disabled={soldOut || stock == null}
           onClick={() => {
-            addItem(productSlug, size, qty);
+            if (!addAndTrack()) return;
             router.push("/checkout");
           }}
           className="inline-flex flex-1 items-center justify-center bg-button px-6 py-3.5 text-sm tracking-wide text-white disabled:opacity-40"
@@ -101,7 +116,7 @@ export function AddToCart({
           type="button"
           disabled={soldOut || stock == null}
           onClick={() => {
-            addItem(productSlug, size, qty);
+            if (!addAndTrack()) return;
             setMessage(`${productName} · ${size} × ${qty} added to cart`);
           }}
           className="inline-flex flex-1 items-center justify-center border border-foreground px-6 py-3.5 text-sm tracking-wide disabled:opacity-40"

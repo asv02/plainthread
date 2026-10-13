@@ -46,6 +46,7 @@ const expectedTables = [
   "checkout_verify_sessions",
   "users",
   "customer_sessions",
+  "meta_event_outbox",
 ];
 const expectedRpcs = [
   "checkout_create",
@@ -60,6 +61,9 @@ const expectedRpcs = [
   "admin_set_payment",
   "confirm_cod_order",
   "upsert_customer",
+  "enqueue_meta_purchase",
+  "claim_meta_event_outbox",
+  "reconcile_meta_purchase_outbox",
 ];
 const expectedOrderCols = [
   "public_id",
@@ -77,6 +81,8 @@ const expectedOrderCols = [
   "razorpay_order_id",
   "hold_expires_at",
   "created_at",
+  "meta_fbp",
+  "marketing_consent",
 ];
 
 async function main() {

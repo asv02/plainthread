@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { formatPrice } from "@/lib/utils";
 import { MoneyRows } from "@/components/shop/MoneyRows";
 import { taxLinesFromStored } from "@/lib/shop/tax";
 import { siteConfig } from "@/data/site";
+import { isEligiblePaidPurchase, purchaseCustomData, purchaseEventId } from "@/lib/meta/events";
+import { PIXEL_READY_EVENT, trackPurchase } from "@/lib/meta-pixel-client";
+import { AD_CONSENT_EVENT } from "@/lib/meta/consent";
 import type { PublicOrder } from "@/lib/shop/types";
 
 function cancelMailto(publicId: string, parcelStatus: string) {
@@ -16,35 +19,98 @@ function cancelMailto(publicId: string, parcelStatus: string) {
   return `mailto:${siteConfig.email}?subject=${subject}&body=${body}`;
 }
 
+function asPurchaseOrder(order: PublicOrder) {
+  return {
+    status: order.status,
+    payment_status: order.paymentStatus,
+    payment_method: order.paymentMethod,
+    paid_at: order.paidAt,
+    public_id: order.publicId,
+    total_paise: order.totalPaise,
+    tax_paise: order.taxPaise,
+    shipping_paise: order.shippingPaise,
+    currency: order.currency,
+  };
+}
+
 export function OrderView({ publicId }: { publicId: string }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const token = searchParams.get("token") ?? "";
   const [order, setOrder] = useState<PublicOrder | null>(null);
-  const [accessToken, setAccessToken] = useState(token);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
+  const purchaseSent = useRef(false);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/orders/${publicId}?token=${encodeURIComponent(token)}`, {
-      cache: "no-store",
-    });
+    const res = await fetch(`/api/orders/${publicId}`, { cache: "no-store" });
     const data = (await res.json()) as {
       order?: PublicOrder;
-      accessToken?: string;
       error?: string;
     };
     if (!res.ok || !data.order) {
       setError(data.error || "Order not found");
-      return;
+      return null;
     }
     setOrder(data.order);
-    if (data.accessToken) setAccessToken(data.accessToken);
-  }, [publicId, token]);
+    setError("");
+    return data.order;
+  }, [publicId]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!order || order.paymentStatus !== "pending_payment" || order.status !== "open") return;
+    let cancelled = false;
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      if (attempts > 12) {
+        window.clearInterval(timer);
+        return;
+      }
+      void load().then((next) => {
+        if (cancelled || next?.paymentStatus === "paid") window.clearInterval(timer);
+      });
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [order, load]);
+
+  useEffect(() => {
+    function trySend() {
+      if (!order || purchaseSent.current) return;
+      const eligible = isEligiblePaidPurchase(asPurchaseOrder(order));
+      if (!eligible) return;
+      const eventID = purchaseEventId(order.publicId);
+      try {
+        if (sessionStorage.getItem(`pt_meta_purchase_${eventID}`)) {
+          purchaseSent.current = true;
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      if (!trackPurchase(purchaseCustomData(asPurchaseOrder(order), order.items), eventID)) {
+        return;
+      }
+      purchaseSent.current = true;
+      try {
+        sessionStorage.setItem(`pt_meta_purchase_${eventID}`, "1");
+      } catch {
+        // ignore
+      }
+    }
+    trySend();
+    window.addEventListener(AD_CONSENT_EVENT, trySend);
+    window.addEventListener(PIXEL_READY_EVENT, trySend);
+    return () => {
+      window.removeEventListener(AD_CONSENT_EVENT, trySend);
+      window.removeEventListener(PIXEL_READY_EVENT, trySend);
+    };
+  }, [order]);
 
   function emailAndGoToReturns(parcelStatus: string) {
     window.open(cancelMailto(publicId, parcelStatus));
@@ -69,7 +135,7 @@ export function OrderView({ publicId }: { publicId: string }) {
       const res = await fetch(`/api/orders/${publicId}/cancel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken, reason: "customer_cancelled" }),
+        body: JSON.stringify({ reason: "customer_cancelled" }),
       });
       const data = (await res.json()) as {
         order?: PublicOrder;
@@ -94,14 +160,10 @@ export function OrderView({ publicId }: { publicId: string }) {
     return (
       <p className="text-secondary">
         {error}{" "}
-        {!token && (
-          <>
-            <a href="/account" className="underline underline-offset-2">
-              Sign in
-            </a>{" "}
-            with your checkout email to view this order.
-          </>
-        )}
+        <a href="/account" className="underline underline-offset-2">
+          Sign in
+        </a>{" "}
+        with your checkout email to view this order.
       </p>
     );
   }

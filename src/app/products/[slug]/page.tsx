@@ -1,4 +1,5 @@
 import { AddToCart } from "@/components/shop/AddToCart";
+import { ViewContentPixel } from "@/components/analytics/ViewContentPixel";
 import { ProductCard } from "@/components/product/ProductCard";
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
@@ -89,6 +90,11 @@ export default async function ProductPage({ params }: Props) {
               {product.gsm} GSM · {product.fabric} · {product.fit}
             </p>
 
+            <ViewContentPixel
+              slug={product.slug}
+              name={product.name}
+              priceRupees={product.price}
+            />
             <div className="mt-8">
               <AddToCart productSlug={product.slug} productName={product.name} />
             </div>

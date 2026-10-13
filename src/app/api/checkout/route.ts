@@ -3,7 +3,12 @@ import {
   attachRazorpayOrder,
   cancelCustomerOrder,
   checkoutCreate,
+  saveOrderAttribution,
 } from "@/lib/shop/orders";
+import { jsonWithOrderAccess } from "@/lib/shop/order-access";
+import { validateFbc, validateFbp } from "@/lib/meta/fbp-fbc";
+import { isMarketingConsentGrantedFromHeader } from "@/lib/meta/consent";
+import { requestUserAgent, trustedClientIp } from "@/lib/meta/ip";
 import { priceCart, validateCustomer } from "@/lib/shop/pricing";
 import {
   razorpayConfigError,
@@ -32,6 +37,9 @@ export async function POST(request: Request) {
       items?: CartLine[];
       customer?: Parameters<typeof validateCustomer>[0];
       verifyToken?: string;
+      marketingConsent?: boolean;
+      fbp?: string;
+      fbc?: string;
     };
 
     const idempotencyKey = body.idempotencyKey?.trim() ?? "";
@@ -108,6 +116,21 @@ export async function POST(request: Request) {
     });
 
     try {
+      const marketingConsent = isMarketingConsentGrantedFromHeader(
+        request.headers.get("cookie"),
+      );
+      await saveOrderAttribution(payload.order.id, {
+        marketingConsent,
+        fbp: marketingConsent ? validateFbp(typeof body.fbp === "string" ? body.fbp : null) : null,
+        fbc: marketingConsent ? validateFbc(typeof body.fbc === "string" ? body.fbc : null) : null,
+        ip: marketingConsent ? trustedClientIp(request) : null,
+        userAgent: marketingConsent ? requestUserAgent(request) : null,
+      });
+    } catch (error) {
+      flow.debug("attribution save skipped", { error: errMessage(error) });
+    }
+
+    try {
       const userId = await upsertCustomer({
         email: payload.order.email,
         phone: payload.order.phone,
@@ -128,11 +151,14 @@ export async function POST(request: Request) {
         paymentMethod: payload.order.payment_method,
         paymentStatus: payload.order.payment_status,
       });
-      return NextResponse.json({
-        alreadyPaid: payload.order.payment_status === "paid" || payload.order.payment_method === "cod",
-        order: toPublicOrder(payload),
-        accessToken: payload.order.access_token,
-      });
+      return jsonWithOrderAccess(
+        {
+          alreadyPaid: payload.order.payment_status === "paid" || payload.order.payment_method === "cod",
+          order: toPublicOrder(payload),
+        },
+        payload.order.public_id,
+        payload.order.access_token,
+      );
     }
 
     if (!razorpayConfigured()) {
@@ -147,14 +173,17 @@ export async function POST(request: Request) {
       }
 
       flow.done("simulate provider ready", { publicId: payload.order.public_id });
-      return NextResponse.json({
-        provider: "simulate",
-        order: toPublicOrder(payload),
-        accessToken: payload.order.access_token,
-        keyId: null,
-        razorpayOrderId: null,
-        amountPaise: payload.order.total_paise,
-      });
+      return jsonWithOrderAccess(
+        {
+          provider: "simulate",
+          order: toPublicOrder(payload),
+          keyId: null,
+          razorpayOrderId: null,
+          amountPaise: payload.order.total_paise,
+        },
+        payload.order.public_id,
+        payload.order.access_token,
+      );
     }
 
     let razorpayOrderId = payload.order.razorpay_order_id;
@@ -206,17 +235,20 @@ export async function POST(request: Request) {
       razorpayOrderId,
       amountPaise: payload.order.total_paise,
     });
-    return NextResponse.json({
-      provider: "razorpay",
-      order: toPublicOrder(payload),
-      accessToken: payload.order.access_token,
-      keyId: razorpayPublicKeyId(),
-      razorpayOrderId,
-      order_id: razorpayOrderId,
-      amount: payload.order.total_paise,
-      amountPaise: payload.order.total_paise,
-      currency: "INR",
-    });
+    return jsonWithOrderAccess(
+      {
+        provider: "razorpay",
+        order: toPublicOrder(payload),
+        keyId: razorpayPublicKeyId(),
+        razorpayOrderId,
+        order_id: razorpayOrderId,
+        amount: payload.order.total_paise,
+        amountPaise: payload.order.total_paise,
+        currency: "INR",
+      },
+      payload.order.public_id,
+      payload.order.access_token,
+    );
   } catch (error) {
     if (error instanceof RazorpayRequestError) {
       flow.fail("razorpay error", { error: error.message, status: error.status });

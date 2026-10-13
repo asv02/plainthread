@@ -6,8 +6,13 @@ import {
   finalizeRefundCancel,
   getOrderByPublicId,
 } from "@/lib/shop/orders";
-import { customerOwnsOrder, getCustomerFromCookie } from "@/lib/shop/customers";
-import { timingSafeEqual, toPublicOrder } from "@/lib/shop/serialize";
+import { getCustomerFromCookie } from "@/lib/shop/customers";
+import { toPublicOrder } from "@/lib/shop/serialize";
+import {
+  jsonWithOrderAccess,
+  orderAuthorized,
+  readOrderAccessToken,
+} from "@/lib/shop/order-access";
 import { errMessage, startFlow } from "@/lib/log";
 import { siteConfig } from "@/data/site";
 
@@ -24,11 +29,9 @@ export async function POST(
     };
     const payload = await getOrderByPublicId(publicId);
     const user = await getCustomerFromCookie();
-    const tokenOk = Boolean(
-      payload && body.accessToken && timingSafeEqual(payload.order.access_token, body.accessToken),
-    );
-    const sessionOk = Boolean(payload && user && customerOwnsOrder(user, payload.order));
-    if (!payload || (!tokenOk && !sessionOk)) {
+    const cookieToken = await readOrderAccessToken(publicId);
+    const auth = orderAuthorized(payload, body.accessToken || cookieToken, user);
+    if (!payload || !auth.ok) {
       flow.fail("not found or unauthorized", { publicId });
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
@@ -93,30 +96,39 @@ export async function POST(
             publicId,
             error: errMessage(error),
           });
-          return NextResponse.json({
-            result: "needs_refund",
-            order: result.payload ? toPublicOrder(result.payload) : undefined,
-            accessToken: result.payload?.order.access_token,
-            error:
-              "Order is cancelled. Refund is pending — it will retry at normal speed, or refund this payment from the Razorpay dashboard.",
-          });
+          return jsonWithOrderAccess(
+            {
+              result: "needs_refund",
+              order: result.payload ? toPublicOrder(result.payload) : undefined,
+              error:
+                "Order is cancelled. Refund is pending — it will retry at normal speed, or refund this payment from the Razorpay dashboard.",
+            },
+            payload.order.public_id,
+            payload.order.access_token,
+          );
         }
       }
       const refunded = await finalizeRefundCancel(payload.order.id);
       flow.done("cancel finalized with refund", { publicId, result: refunded.result });
-      return NextResponse.json({
-        result: refunded.result,
-        order: refunded.payload ? toPublicOrder(refunded.payload) : undefined,
-        accessToken: refunded.payload?.order.access_token,
-      });
+      return jsonWithOrderAccess(
+        {
+          result: refunded.result,
+          order: refunded.payload ? toPublicOrder(refunded.payload) : undefined,
+        },
+        payload.order.public_id,
+        payload.order.access_token,
+      );
     }
 
     flow.done("cancel complete", { publicId, result: result.result });
-    return NextResponse.json({
-      result: result.result,
-      order: result.payload ? toPublicOrder(result.payload) : undefined,
-      accessToken: result.payload?.order.access_token,
-    });
+    return jsonWithOrderAccess(
+      {
+        result: result.result,
+        order: result.payload ? toPublicOrder(result.payload) : undefined,
+      },
+      payload.order.public_id,
+      payload.order.access_token,
+    );
   } catch (error) {
     flow.fail("failed", { error: errMessage(error) });
     return NextResponse.json(

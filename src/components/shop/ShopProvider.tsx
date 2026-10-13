@@ -37,11 +37,19 @@ type VariantStock = {
   stock: number;
 };
 
+export type AddItemResult = {
+  added: boolean;
+  qtyAdded: number;
+  productSlug: string;
+  size: string;
+};
+
 type ShopContextValue = {
   items: CartLine[];
   count: number;
   variants: VariantStock[];
-  addItem: (productSlug: string, size: string, qty?: number) => void;
+  hydrated: boolean;
+  addItem: (productSlug: string, size: string, qty?: number) => AddItemResult;
   setQty: (productSlug: string, size: string, qty: number) => void;
   removeItem: (productSlug: string, size: string) => void;
   clearCart: () => void;
@@ -81,7 +89,8 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
     void refreshStock();
   }, [refreshStock]);
 
-  const addItem = useCallback((productSlug: string, size: string, qty = 1) => {
+  const addItem = useCallback((productSlug: string, size: string, qty = 1): AddItemResult => {
+    let result: AddItemResult = { added: false, qtyAdded: 0, productSlug, size };
     setItems((current) => {
       const used = current.reduce((sum, item) => {
         if (item.productSlug === productSlug && item.size === size) return sum;
@@ -95,7 +104,9 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
         MAX_ORDER_QTY - used,
         (existing?.qty ?? 0) + qty,
       );
-      if (nextQty < 1) return current;
+      const qtyAdded = nextQty - (existing?.qty ?? 0);
+      result = { added: qtyAdded > 0, qtyAdded, productSlug, size };
+      if (qtyAdded < 1) return current;
       const next = existing
         ? current.map((item) =>
             item.productSlug === productSlug && item.size === size
@@ -106,6 +117,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return next;
     });
+    return result;
   }, []);
 
   const setQty = useCallback((productSlug: string, size: string, qty: number) => {
@@ -161,6 +173,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       items,
       count,
       variants,
+      hydrated: ready,
       addItem,
       setQty,
       removeItem,
@@ -168,7 +181,7 @@ export function ShopProvider({ children }: { children: React.ReactNode }) {
       stockFor,
       refreshStock,
     }),
-    [items, count, variants, addItem, setQty, removeItem, clearCart, stockFor, refreshStock],
+    [items, count, variants, ready, addItem, setQty, removeItem, clearCart, stockFor, refreshStock],
   );
 
   return <ShopContext.Provider value={value}>{children}</ShopContext.Provider>;
