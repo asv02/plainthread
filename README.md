@@ -55,6 +55,51 @@ Update marketplace URLs in `src/data/products.ts` with your official Amazon and 
 
 Brand content referenced from [asv02/Plain-Theory](https://github.com/asv02/Plain-Theory).
 
+## Homepage hero discount treatment
+
+The homepage hero in `src/app/page.tsx` keeps the existing brand name, headline, product-quality copy, and CTA links, and adds a separate responsive “FLAT 15% OFF — ON ALL T-SHIRTS” seal on the right.
+
+The seal is presentational. Product prices in `src/data/products.ts` stay ₹699, and checkout does not apply a 15% reduction.
+
+### Architecture
+
+- Copy and both buttons stay in the left column. The seal is a second grid item.
+- Below the `lg` breakpoint the seal stacks under the copy. At `lg` and up it sits in the right column.
+- The warm ivory wash is an inline gradient on a decorative layer (`aria-hidden`).
+- The branch is an inline SVG (`.plain-thread-hero-botanical` in `src/app/globals.css`), also `aria-hidden`.
+- The seal is live HTML with `role="img"` and the label “Flat 15 percent off on all T-shirts”. `.plain-thread-discount-seal` draws the ring.
+
+### Why this approach
+
+Live text stays sharp and editable. An inline SVG avoids another image request. The existing collection and brand-story links stay on their current routes.
+
+The botanical SVG needs an unlayered CSS height because `globals.css` sets `svg { height: auto }`, which would otherwise cancel the Tailwind height. The seal class draws the ring because the pull request named `.plain-thread-discount-seal` without a border rule.
+
+### Alternatives considered
+
+| Approach | Advantages | Disadvantages | Decision |
+|---|---|---|---|
+| HTML seal, ivory gradient, inline SVG branch | Editable copy, no extra asset, matches the circular editorial badge | Branch is illustrative, not a photograph | Selected |
+| Use the supplied full hero image as the background | Closest pixel match to the reference | Bakes copy into an image and duplicates the existing HTML | Rejected |
+| Separate botanical photo | More photorealistic | Extra asset and optimization work | Rejected |
+| Small promotional pill | Simpler | Does not match the circular seal | Rejected |
+
+### Verification
+
+Checked in the running dev server:
+
+- Desktop 1280px and 1024px: seal sits to the right of the copy, with a gap, and does not overlap the headline or buttons. Seal text stays inside the ring.
+- Phone 390px: seal stacks under the buttons. No horizontal overflow.
+- **Shop Collection** opens `/collections/oversized-tshirts`. **Why Plain Thread** opens `/why-plain-thread`.
+- `npx tsc --noEmit` passed.
+- `npx eslint src/app/page.tsx` passed. `npm run lint` still fails on six existing `react-hooks/set-state-in-effect` errors in admin, account, checkout, order, and cart code. Those files were not part of this change.
+
+`npm run build` was not run while `next dev` was already serving the app.
+
+### Maintenance
+
+Changing the offer means editing the seal text in `src/app/page.tsx`. Applying the discount at checkout is separate work and is not done here. There is no React component test runner in this repo, so the hero was checked in the browser rather than with a new test dependency.
+
 ## Meta Pixel and Conversions API
 
 Pixel ID: `1765251828052032`. One Pixel init after **explicit** marketing consent. Shopping actions are **standard events**, not extra PageViews.
