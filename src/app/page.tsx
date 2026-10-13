@@ -25,7 +25,34 @@ export default function HomePage() {
       <JsonLd data={faqSchema(siteFaqs.slice(0, 6))} />
 
       {/* HERO — preserve the existing copy and add the 15% editorial badge */}
-      <section className="plain-thread-hero relative overflow-hidden border-b border-border">
+      <section className="plain-thread-hero relative overflow-hidden border-b border-border bg-[#f8f2e9]">
+        <div
+          className="pointer-events-none absolute inset-0"
+          aria-hidden="true"
+          style={{
+            background:
+              "radial-gradient(ellipse at 20% 20%, rgba(255,255,255,.94) 0%, rgba(255,255,255,.38) 42%, transparent 72%), linear-gradient(115deg, #fbf7f0 0%, #f4eadc 100%)",
+          }}
+        />
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 620 820"
+          preserveAspectRatio="xMidYMid slice"
+          className="pointer-events-none absolute -right-20 -top-10 h-[115%] w-[62%] text-[#77674f] opacity-[0.2] blur-[1px] sm:right-0 sm:w-[55%]"
+          fill="none"
+        >
+          <g stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <path d="M650 -30 C520 100 590 205 460 320 S410 520 270 650 S180 760 110 860" />
+            <path d="M560 95 C490 50 450 58 420 105 C475 126 520 122 560 95Z" fill="currentColor" fillOpacity=".36" stroke="none" />
+            <path d="M510 175 C440 138 398 155 380 203 C435 220 478 209 510 175Z" fill="currentColor" fillOpacity=".34" stroke="none" />
+            <path d="M485 264 C545 210 589 226 606 267 C565 298 521 295 485 264Z" fill="currentColor" fillOpacity=".3" stroke="none" />
+            <path d="M430 345 C360 300 319 318 300 364 C353 384 399 378 430 345Z" fill="currentColor" fillOpacity=".32" stroke="none" />
+            <path d="M405 438 C465 385 510 403 526 445 C484 476 441 469 405 438Z" fill="currentColor" fillOpacity=".3" stroke="none" />
+            <path d="M345 525 C280 486 240 505 220 550 C271 570 315 563 345 525Z" fill="currentColor" fillOpacity=".32" stroke="none" />
+            <path d="M300 620 C360 566 405 582 423 625 C383 657 337 653 300 620Z" fill="currentColor" fillOpacity=".3" stroke="none" />
+            <path d="M235 706 C170 665 132 686 112 729 C162 749 205 742 235 706Z" fill="currentColor" fillOpacity=".3" stroke="none" />
+          </g>
+        </svg>
         <div className="container-px relative z-10 grid min-h-[min(88vh,820px)] items-center gap-10 py-14 sm:py-20 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)] lg:gap-6">
           <div className="relative z-10">
             <FadeIn>
