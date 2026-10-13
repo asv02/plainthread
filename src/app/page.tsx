@@ -24,47 +24,61 @@ export default function HomePage() {
     <>
       <JsonLd data={faqSchema(siteFaqs.slice(0, 6))} />
 
-      {/* HERO — brand first, one composition */}
-      <section className="relative overflow-hidden border-b border-border">
-        <div className="absolute inset-0">
-          <Image
-            src="/images/products/Black/plain-thread-black-oversized-tshirt-01.jpg"
-            alt="Plain Thread premium oversized essentials"
-            fill
-            priority
-            className="object-cover opacity-[0.18]"
-            sizes="100vw"
-          />
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(255,255,255,0.9),_rgba(255,255,255,0.97)_55%,_#ffffff)]" />
-        </div>
+      {/* HERO — preserve the existing copy and add the 15% editorial badge */}
+      <section className="plain-thread-hero relative overflow-hidden border-b border-border">
+        <div className="container-px relative z-10 grid min-h-[min(88vh,820px)] items-center gap-10 py-14 sm:py-20 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)] lg:gap-6">
+          <div className="relative z-10">
+            <FadeIn>
+              <p className="font-serif text-[1.75rem] tracking-[0.12em] text-foreground sm:text-5xl md:text-6xl">
+                PLAIN THREAD
+              </p>
+            </FadeIn>
+            <FadeIn delay={0.08}>
+              <h1 className="mt-6 max-w-3xl font-serif text-[1.65rem] leading-tight text-foreground sm:mt-8 sm:text-4xl md:text-5xl">
+                Premium Oversized T-Shirts Made With 220 GSM Combed Cotton
+              </h1>
+            </FadeIn>
+            <FadeIn delay={0.14}>
+              <p className="mt-5 max-w-xl text-base leading-7 text-secondary sm:mt-6 sm:text-lg sm:leading-8">
+                Oversized Essentials, Made Better. Minimal. Comfortable. Built to Last.
+              </p>
+            </FadeIn>
+            <FadeIn delay={0.2}>
+              <p className="mt-4 text-[0.7rem] tracking-[0.14em] text-secondary uppercase sm:text-sm sm:tracking-[0.18em]">
+                220 GSM · 100% Combed Cotton · Chemical Safe
+              </p>
+            </FadeIn>
+            <FadeIn delay={0.26}>
+              <div className="mt-8 flex flex-col gap-3 sm:mt-10 sm:flex-row">
+                <Button href="/collections/oversized-tshirts">Shop Collection</Button>
+                <Button href="/why-plain-thread" variant="secondary">
+                  Why Plain Thread
+                </Button>
+              </div>
+            </FadeIn>
+          </div>
 
-        <div className="container-px relative flex min-h-[min(88vh,820px)] flex-col justify-center py-14 sm:py-20">
-          <FadeIn>
-            <p className="font-serif text-[1.75rem] tracking-[0.12em] text-foreground sm:text-5xl md:text-6xl">
-              PLAIN THREAD
-            </p>
-          </FadeIn>
-          <FadeIn delay={0.08}>
-            <h1 className="mt-6 max-w-3xl font-serif text-[1.65rem] leading-tight text-foreground sm:mt-8 sm:text-4xl md:text-5xl">
-              Premium Oversized T-Shirts Made With 220 GSM Combed Cotton
-            </h1>
-          </FadeIn>
-          <FadeIn delay={0.14}>
-            <p className="mt-5 max-w-xl text-base leading-7 text-secondary sm:mt-6 sm:text-lg sm:leading-8">
-              Oversized Essentials, Made Better. Minimal. Comfortable. Built to Last.
-            </p>
-          </FadeIn>
-          <FadeIn delay={0.2}>
-            <p className="mt-4 text-[0.7rem] tracking-[0.14em] text-secondary uppercase sm:text-sm sm:tracking-[0.18em]">
-              220 GSM · 100% Combed Cotton · Chemical Safe
-            </p>
-          </FadeIn>
-          <FadeIn delay={0.26}>
-            <div className="mt-8 flex flex-col gap-3 sm:mt-10 sm:flex-row">
-              <Button href="/collections/oversized-tshirts">Shop Collection</Button>
-              <Button href="/why-plain-thread" variant="secondary">
-                Why Plain Thread
-              </Button>
+          <FadeIn delay={0.18}>
+            <div className="relative mx-auto flex w-full max-w-[390px] items-center justify-center py-3 sm:py-6 lg:max-w-none lg:py-0">
+              <div
+                className="plain-thread-discount-seal flex aspect-square w-[min(72vw,330px)] flex-col items-center justify-center rounded-full text-center sm:w-[min(42vw,360px)] lg:w-[min(30vw,360px)]"
+                role="img"
+                aria-label="Flat 15 percent off on all T-shirts"
+              >
+                <span className="text-xs font-medium tracking-[0.42em] text-[#594a3b] sm:text-sm">
+                  FLAT
+                </span>
+                <span className="mt-2 font-serif text-[5.2rem] leading-[0.88] tracking-[-0.07em] text-[#4c3d2e] sm:text-8xl lg:text-[7.5rem]">
+                  15%
+                </span>
+                <span className="mt-1 font-serif text-5xl leading-none tracking-[0.02em] text-[#4c3d2e] sm:text-6xl lg:text-7xl">
+                  OFF
+                </span>
+                <span className="mt-5 text-[0.62rem] font-medium tracking-[0.2em] text-[#594a3b] sm:text-xs sm:tracking-[0.28em]">
+                  ON ALL T-SHIRTS
+                </span>
+                <span className="mt-3 h-px w-8 bg-[#9d8973]" aria-hidden="true" />
+              </div>
             </div>
           </FadeIn>
         </div>
