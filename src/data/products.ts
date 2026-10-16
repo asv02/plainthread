@@ -152,6 +152,7 @@ We use 220 GSM combed cotton — denser than typical fashion tees — so the fab
 
 There is no loud branding, no unnecessary graphics, and no seasonal gimmicks. Just a timeless black essential you can wear with black jeans, cargos, shorts, or layered under an open shirt. Made for everyday comfort. Built to last.`,
     price: 699,
+    compareAtPrice: 825,
     sku: "PT-OTS-001-JB",
     gsm: 220,
     fabric: "100% Combed Cotton",
@@ -192,6 +193,7 @@ An oversized cut with drop shoulders gives room to move while keeping a refined 
 
 Style it with dark denim, neutrals, or layered under a jacket. No graphics. No noise. Just a white tee that earns its place in your rotation.`,
     price: 699,
+    compareAtPrice: 825,
     sku: "PT-OTS-001-SW",
     gsm: 220,
     fabric: "100% Combed Cotton",
@@ -232,6 +234,7 @@ Same 220 GSM combed cotton. Same oversized unisex fit. Same skin-friendly constr
 
 Pair it with black trousers, neutrals, or denim. It is the piece customers describe as “perfect” — because it feels considered, not loud.`,
     price: 699,
+    compareAtPrice: 825,
     sku: "PT-OTS-001-RP",
     gsm: 220,
     fabric: "100% Combed Cotton",

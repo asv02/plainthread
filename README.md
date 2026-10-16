@@ -100,6 +100,26 @@ Checked in the running dev server:
 
 Changing the offer means editing the seal text in `src/app/page.tsx`. Discount application itself lives in the coupon engine described below, not in the hero. There is no React component test runner in this repo, so the hero was checked in the browser rather than with a new test dependency.
 
+## Compare-at (strikethrough) price on every product
+
+All three products show `₹825` struck through followed by the real selling price `₹699`, both on the product detail buy box and on the grid cards (Home, `/products`, `/shop`).
+
+### Implementation
+
+- `compareAtPrice: 825` is set on every product in `src/data/products.ts` (the optional `compareAtPrice` field already existed on the `Product` type but was never populated or rendered).
+- `AddToCart` (`src/components/shop/AddToCart.tsx`) renders the struck-through `compareAtPrice` before the live price; the live price still comes from the server (`pricePaiseFor` → DB `price_paise`), so if the DB price ever changes, only the right-hand number moves — `₹825` is a static marketing MRP.
+- `ProductCard` (`src/components/product/ProductCard.tsx`) previously showed no price at all; it now renders `formatPrice(compareAtPrice)` with Tailwind `line-through` plus `formatPrice(price)` from the static catalog.
+- Purely display-level: quotes, coupons, checkout totals, Meta pixel values, and order persistence are untouched — customers are always charged the server-authoritative price.
+
+**Alternatives considered**: a DB `compare_at_price_paise` column (rejected: needs a migration, RPC and quote-schema changes for a fixed marketing number that never participates in pricing) and computing the pair from a percentage (rejected: the spec names exact 825/699 values). **Trade-off kept**: grid cards show the static catalog price, which could diverge from the DB variant price if merchandising changes one but not the other; the detail page and all money paths remain server-authoritative.
+
+### Verification (2026-10-17, compare-at display)
+
+- Browser E2E on the dev server: `/products/black-oversized-tshirt` buy box renders `₹825` with computed `text-decoration-line: line-through` followed by `₹699`; `/shop` renders the pair on all three grid cards (`strikeCount` 3, each `"₹825₹699"`); the "More colours" related cards on the detail page also show the pair.
+- `npx tsc --noEmit` passes; `npm run build` succeeds; `npm run lint` unchanged at the 5 pre-existing errors + 1 warning baseline.
+- Full regression: `test:coupons` 19/19, `test:identity` 17/17, `test:email-sync` 13/13, `test:order-auth` 10/10, `test:meta` 15/15.
+- Not covered by unit tests (no component test runner in this repo): the rendering itself is browser-verified only.
+
 ## Coupons and database-driven SKU pricing
 
 Admin-configurable coupons integrate with the existing cart, checkout, and Razorpay flow. No thresholds or percentages are hardcoded; everything is read from the database per request.

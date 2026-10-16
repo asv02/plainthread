@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import type { Product } from "@/data/products";
+import { formatPrice } from "@/lib/utils";
 
 export function ProductCard({ product, index = 0 }: { product: Product; index?: number }) {
   return (
@@ -30,6 +31,12 @@ export function ProductCard({ product, index = 0 }: { product: Product; index?: 
           <p className="text-xs uppercase tracking-[0.2em] text-secondary">{product.color}</p>
           <h3 className="mt-2 font-serif text-xl text-foreground sm:text-2xl">Oversized Tee</h3>
           <p className="mt-1 text-sm text-secondary">220 GSM</p>
+          <p className="mt-2 flex items-baseline gap-2 text-sm">
+            {product.compareAtPrice != null && (
+              <span className="text-secondary line-through">{formatPrice(product.compareAtPrice)}</span>
+            )}
+            <span className="text-foreground">{formatPrice(product.price)}</span>
+          </p>
           <p
             className="mt-2 text-sm tracking-widest text-foreground"
             aria-label={`${product.rating} out of 5 stars`}

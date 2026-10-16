@@ -33,12 +33,19 @@ export function AddToCart({
 
   return (
     <div className="space-y-4">
-      <p className="text-lg">
-        {unitPaise != null
-          ? formatPrice(unitPaise / 100)
-          : variantsLoaded
-            ? "Price unavailable"
-            : "Loading price…"}
+      <p className="flex items-baseline gap-3 text-lg">
+        {product?.compareAtPrice != null && (
+          <span className="text-sm text-secondary line-through">
+            {formatPrice(product.compareAtPrice)}
+          </span>
+        )}
+        <span className="text-foreground">
+          {unitPaise != null
+            ? formatPrice(unitPaise / 100)
+            : variantsLoaded
+              ? "Price unavailable"
+              : "Loading price…"}
+        </span>
       </p>
       <div>
         <div className="flex items-center justify-between">
