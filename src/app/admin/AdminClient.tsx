@@ -2,9 +2,40 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AdminOrder } from "@/lib/shop/types";
+import type { CouponConfig, EligibilityType } from "@/lib/shop/coupon";
+import { offerCondition } from "@/lib/shop/coupon";
 import { formatPrice } from "@/lib/utils";
 
-type Variant = { sku: string; product_slug: string; size: string; stock: number };
+type Variant = {
+  sku: string;
+  product_slug: string;
+  size: string;
+  stock: number;
+  price_paise?: number | null;
+};
+
+type CouponForm = {
+  id?: string;
+  code: string;
+  discountPercent: string;
+  eligibilityType: EligibilityType;
+  minCartRupees: string;
+  minQuantity: string;
+  eligibleProductSlugs: string[];
+  isEnabled: boolean;
+  allProducts: boolean;
+};
+
+const emptyCoupon: CouponForm = {
+  code: "",
+  discountPercent: "",
+  eligibilityType: "MIN_CART_VALUE",
+  minCartRupees: "",
+  minQuantity: "",
+  eligibleProductSlugs: [],
+  isEnabled: true,
+  allProducts: true,
+};
 
 function parcelLabel(order: AdminOrder) {
   return order.parcel_status ?? "pending";
@@ -94,6 +125,9 @@ export function AdminClient() {
   const [authed, setAuthed] = useState(false);
   const [error, setError] = useState("");
   const [variants, setVariants] = useState<Variant[]>([]);
+  const [coupons, setCoupons] = useState<CouponConfig[]>([]);
+  const [couponForm, setCouponForm] = useState<CouponForm>(emptyCoupon);
+  const [couponError, setCouponError] = useState("");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
@@ -103,8 +137,15 @@ export function AdminClient() {
       setAuthed(false);
       return;
     }
-    const data = (await res.json()) as { variants?: Variant[]; orders?: AdminOrder[] };
+    const data = (await res.json()) as {
+      variants?: Variant[];
+      orders?: AdminOrder[];
+      coupons?: CouponConfig[];
+      couponsError?: string | null;
+    };
     setVariants(data.variants ?? []);
+    setCoupons(data.coupons ?? []);
+    if (data.couponsError) setCouponError(data.couponsError);
     setOrders(data.orders ?? []);
     setAuthed(true);
     setUpdatedAt(new Date().toISOString());
@@ -136,6 +177,81 @@ export function AdminClient() {
     }
     await load();
   }
+
+  async function savePrice(sku: string, rupees: string) {
+    if (!/^\d+(\.\d{1,2})?$/.test(rupees.trim())) {
+      setError("Enter a price in rupees with up to two decimals.");
+      return;
+    }
+    const pricePaise = Math.round(Number(rupees) * 100);
+    const res = await fetch("/api/admin", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "price", sku, pricePaise }),
+    });
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) {
+      setError(data.error || "Could not update price");
+      return;
+    }
+    setError("");
+    await load();
+  }
+
+  function editCoupon(coupon: CouponConfig) {
+    setCouponForm({
+      id: coupon.id,
+      code: coupon.code,
+      discountPercent: String(coupon.discountPercent),
+      eligibilityType: coupon.eligibilityType,
+      minCartRupees: coupon.minCartValuePaise ? String(coupon.minCartValuePaise / 100) : "",
+      minQuantity: coupon.minQuantity ? String(coupon.minQuantity) : "",
+      eligibleProductSlugs: coupon.eligibleProductSlugs,
+      isEnabled: coupon.isEnabled,
+      allProducts: coupon.eligibleProductSlugs.length === 0,
+    });
+    setCouponError("");
+  }
+
+  async function saveCoupon(event: React.FormEvent) {
+    event.preventDefault();
+    setCouponError("");
+    if (!couponForm.allProducts && couponForm.eligibleProductSlugs.length === 0) {
+      setCouponError("Select at least one product, or choose all products.");
+      return;
+    }
+    const minCartValuePaise =
+      couponForm.eligibilityType === "MIN_CART_VALUE" && /^\d+(\.\d{1,2})?$/.test(couponForm.minCartRupees.trim())
+        ? Math.round(Number(couponForm.minCartRupees) * 100)
+        : null;
+    const res = await fetch("/api/admin", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "coupon",
+        coupon: {
+          id: couponForm.id,
+          code: couponForm.code,
+          discountPercent: Number(couponForm.discountPercent),
+          eligibilityType: couponForm.eligibilityType,
+          minCartValuePaise,
+          minQuantity:
+            couponForm.eligibilityType === "MIN_QUANTITY" ? Number(couponForm.minQuantity) : null,
+          eligibleProductSlugs: couponForm.allProducts ? [] : couponForm.eligibleProductSlugs,
+          isEnabled: couponForm.isEnabled,
+        },
+      }),
+    });
+    const data = (await res.json()) as { error?: string };
+    if (!res.ok) {
+      setCouponError(data.error || "Could not save coupon");
+      return;
+    }
+    setCouponForm(emptyCoupon);
+    await load();
+  }
+
+  const productSlugs = [...new Set(variants.map((variant) => variant.product_slug))];
 
   async function saveStock(sku: string, stock: number) {
     await fetch("/api/admin", {
@@ -186,6 +302,7 @@ export function AdminClient() {
 
   return (
     <div className="space-y-12">
+      {error && <p className="text-sm text-red-700">{error}</p>}
       <section>
         <h2 className="font-serif text-2xl">Inventory</h2>
         <div className="mt-4 overflow-x-auto">
@@ -195,6 +312,7 @@ export function AdminClient() {
                 <th className="py-2">SKU</th>
                 <th>Product</th>
                 <th>Size</th>
+                <th>Price (₹)</th>
                 <th>Stock</th>
               </tr>
             </thead>
@@ -204,6 +322,18 @@ export function AdminClient() {
                   <td className="py-2">{variant.sku}</td>
                   <td>{variant.product_slug}</td>
                   <td>{variant.size}</td>
+                  <td>
+                    <input
+                      type="number"
+                      min={1}
+                      step="0.01"
+                      defaultValue={
+                        variant.price_paise ? (variant.price_paise / 100).toFixed(2) : ""
+                      }
+                      className="w-24 border border-border px-2 py-1"
+                      onBlur={(event) => void savePrice(variant.sku, event.target.value)}
+                    />
+                  </td>
                   <td>
                     <input
                       type="number"
@@ -220,6 +350,114 @@ export function AdminClient() {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section>
+        <h2 className="font-serif text-2xl">Coupons</h2>
+        <p className="mt-2 max-w-2xl text-sm text-secondary">
+          One eligibility rule per coupon. An empty product list means every product. The code is letters plus a 1-2 digit discount number, for example PLAIN5 for 5% or SAVE25 for 25%.
+        </p>
+        {couponError && <p className="mt-3 text-sm text-red-700">{couponError}</p>}
+        <form onSubmit={(event) => void saveCoupon(event)} className="mt-4 grid max-w-xl gap-3 text-sm">
+          <input
+            value={couponForm.code}
+            onChange={(event) => setCouponForm({ ...couponForm, code: event.target.value.toUpperCase() })}
+            placeholder="PLAIN5"
+            aria-label="Coupon code"
+            className="border border-border px-3 py-2"
+          />
+          <input
+            value={couponForm.discountPercent}
+            onChange={(event) => setCouponForm({ ...couponForm, discountPercent: event.target.value })}
+            placeholder="Percentage"
+            aria-label="Discount percentage"
+            className="border border-border px-3 py-2"
+          />
+          <select
+            value={couponForm.eligibilityType}
+            onChange={(event) =>
+              setCouponForm({
+                ...couponForm,
+                eligibilityType: event.target.value as EligibilityType,
+              })
+            }
+            className="border border-border px-3 py-2"
+          >
+            <option value="MIN_CART_VALUE">Minimum cart value</option>
+            <option value="MIN_QUANTITY">Minimum quantity</option>
+          </select>
+          {couponForm.eligibilityType === "MIN_CART_VALUE" ? (
+            <input
+              value={couponForm.minCartRupees}
+              onChange={(event) => setCouponForm({ ...couponForm, minCartRupees: event.target.value })}
+              placeholder="Minimum cart value in rupees"
+              aria-label="Minimum cart value in rupees"
+              className="border border-border px-3 py-2"
+            />
+          ) : (
+            <input
+              value={couponForm.minQuantity}
+              onChange={(event) => setCouponForm({ ...couponForm, minQuantity: event.target.value })}
+              placeholder="Minimum quantity"
+              aria-label="Minimum quantity"
+              className="border border-border px-3 py-2"
+            />
+          )}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={couponForm.allProducts}
+              onChange={(event) => setCouponForm({ ...couponForm, allProducts: event.target.checked })}
+            />
+            All products
+          </label>
+          {!couponForm.allProducts && (
+            <div className="space-y-1">
+              {productSlugs.map((slug) => (
+                <label key={slug} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={couponForm.eligibleProductSlugs.includes(slug)}
+                    onChange={(event) => {
+                      const eligibleProductSlugs = event.target.checked
+                        ? [...couponForm.eligibleProductSlugs, slug]
+                        : couponForm.eligibleProductSlugs.filter((item) => item !== slug);
+                      setCouponForm({ ...couponForm, eligibleProductSlugs });
+                    }}
+                  />
+                  {slug}
+                </label>
+              ))}
+            </div>
+          )}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={couponForm.isEnabled}
+              onChange={(event) => setCouponForm({ ...couponForm, isEnabled: event.target.checked })}
+            />
+            Enabled
+          </label>
+          <button type="submit" className="w-fit bg-button px-4 py-2 text-white">
+            {couponForm.id ? "Update coupon" : "Create coupon"}
+          </button>
+        </form>
+        <ul className="mt-6 space-y-2 text-sm">
+          {coupons.map((coupon) => (
+            <li key={coupon.id ?? coupon.code} className="flex flex-wrap items-center justify-between gap-3 border border-border px-3 py-2">
+              <span>
+                {coupon.code} · {coupon.discountPercent}% · {offerCondition(coupon)} ·{" "}
+                {coupon.isEnabled ? "Enabled" : "Disabled"}
+                {coupon.eligibleProductSlugs.length > 0
+                  ? ` · ${coupon.eligibleProductSlugs.join(", ")}`
+                  : " · All products"}
+              </span>
+              <button type="button" className="underline underline-offset-4" onClick={() => editCoupon(coupon)}>
+                Edit
+              </button>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section>

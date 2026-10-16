@@ -44,6 +44,10 @@ export async function checkoutCreate(input: {
   cgstPaise: number;
   sgstPaise: number;
   igstPaise: number;
+  discountPaise?: number;
+  couponCode?: string | null;
+  couponPercent?: number | null;
+  couponSnapshot?: object | null;
 }) {
   const { data, error } = await supabaseAdmin().rpc("checkout_create", {
     p_idempotency_key: input.idempotencyKey,
@@ -59,6 +63,10 @@ export async function checkoutCreate(input: {
     p_cgst_paise: input.cgstPaise,
     p_sgst_paise: input.sgstPaise,
     p_igst_paise: input.igstPaise,
+    p_discount_paise: input.discountPaise ?? 0,
+    p_coupon_code: input.couponCode ?? null,
+    p_coupon_percent: input.couponPercent ?? null,
+    p_coupon_snapshot: input.couponSnapshot ?? null,
   });
   if (error) {
     const message = error.message || "Checkout failed";

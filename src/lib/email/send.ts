@@ -81,6 +81,11 @@ function invoiceHtml(payload: OrderPayload, kind: "customer" | "ops") {
     <table style="width:100%;border-collapse:collapse;margin-top:24px;">${items}</table>
     <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:14px;">
       <tr><td>Subtotal</td><td style="text-align:right;">${money(lines.goodsPaise)}</td></tr>
+      ${
+        lines.discountPaise
+          ? `<tr><td>Coupon${order.couponCode ? ` ${escapeHtml(order.couponCode)}` : ""}</td><td style="text-align:right;">-${money(lines.discountPaise)}</td></tr>`
+          : ""
+      }
       ${taxRows}
       ${
         lines.shippingPaise

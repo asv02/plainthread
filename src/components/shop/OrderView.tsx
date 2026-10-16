@@ -188,7 +188,7 @@ export function OrderView({ publicId }: { publicId: string }) {
           </li>
         ))}
       </ul>
-      <MoneyRows {...taxLinesFromStored(order)} />
+      <MoneyRows {...taxLinesFromStored(order)} couponCode={order.couponCode} />
       <p className="text-sm leading-6 text-secondary">
         {order.customerName}
         <br />

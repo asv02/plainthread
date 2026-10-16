@@ -10,7 +10,7 @@ export async function GET() {
     log.info("variants", "expired stale holds");
     const { data, error } = await supabaseAdmin()
       .from("variants")
-      .select("product_slug, size, sku, stock")
+      .select("product_slug, size, sku, stock, price_paise")
       .order("product_slug")
       .order("size");
     if (error) throw new Error(error.message);

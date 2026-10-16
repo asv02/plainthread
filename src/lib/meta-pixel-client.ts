@@ -11,7 +11,7 @@ import {
   type PixelEventName,
   viewContentCustomData,
 } from "@/lib/meta/events";
-import type { MetaContentItem } from "@/lib/meta/catalog";
+import { META_CURRENCY, type MetaContentItem } from "@/lib/meta/catalog";
 
 type Fbq = ((...args: unknown[]) => void) & {
   callMethod?: (...args: unknown[]) => void;
@@ -167,6 +167,27 @@ export function trackInitiateCheckout(
 ) {
   if (input.contents.length === 0) return false;
   return trackMetaEvent("InitiateCheckout", initiateCheckoutCustomData(input), eventID);
+}
+
+export function trackCouponApplied(
+  input: {
+    couponCode: string;
+    discountRupees: number;
+    valueRupees: number;
+  },
+  eventID?: string,
+) {
+  if (!input.couponCode) return false;
+  return trackMetaEvent(
+    "CouponApplied",
+    {
+      coupon_code: input.couponCode,
+      discount: input.discountRupees,
+      value: input.valueRupees,
+      currency: META_CURRENCY,
+    },
+    eventID,
+  );
 }
 
 export function trackPurchase(input: Record<string, unknown>, eventID: string) {

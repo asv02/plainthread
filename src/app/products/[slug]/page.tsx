@@ -1,4 +1,5 @@
 import { AddToCart } from "@/components/shop/AddToCart";
+import { ProductOffers } from "@/components/shop/ProductOffers";
 import { ViewContentPixel } from "@/components/analytics/ViewContentPixel";
 import { ProductCard } from "@/components/product/ProductCard";
 import { ProductGallery } from "@/components/product/ProductGallery";
@@ -11,7 +12,6 @@ import { getProduct, getRelatedProducts, products } from "@/data/products";
 import { productFaqs } from "@/data/faqs";
 import { breadcrumbSchema, faqSchema, productSchema } from "@/lib/schema";
 import { buildMetadata } from "@/lib/seo";
-import { formatPrice } from "@/lib/utils";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Check } from "lucide-react";
@@ -85,7 +85,6 @@ export default async function ProductPage({ params }: Props) {
                 {product.rating} · {product.reviewCount} reviews
               </span>
             </p>
-            <p className="mt-4 text-lg">{formatPrice(product.price)}</p>
             <p className="mt-2 text-sm text-secondary">
               {product.gsm} GSM · {product.fabric} · {product.fit}
             </p>
@@ -97,6 +96,7 @@ export default async function ProductPage({ params }: Props) {
             />
             <div className="mt-8">
               <AddToCart productSlug={product.slug} productName={product.name} />
+              <ProductOffers productSlug={product.slug} />
             </div>
 
             <p className="mt-8 text-lg leading-8 text-secondary">

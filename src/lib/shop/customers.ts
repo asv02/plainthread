@@ -88,8 +88,33 @@ export async function deleteCustomerSession() {
   });
 }
 
-export function customerOwnsOrder(user: CustomerUser, order: DbOrder) {
-  return order.user_id === user.id || order.email.toLowerCase() === user.email.toLowerCase();
+export async function customerOwnsOrderWithLinks(
+  user: CustomerUser,
+  order: DbOrder,
+): Promise<boolean> {
+  if (order.user_id === user.id) return true;
+  const email = order.email.toLowerCase();
+  if (email === user.email.toLowerCase()) return true;
+  const linked = await listVerifiedEmails(user.id);
+  return linked.some((value) => value.toLowerCase() === email);
+}
+
+// Legacy secondary emails (20261017 customer_emails table) — used only for
+// order-history visibility of accounts created under the multi-email model.
+// Checkout trust and account switching now use the single primary email.
+export async function listVerifiedEmails(userId: string): Promise<string[]> {
+  try {
+    const { data, error } = await supabaseAdmin()
+      .from("customer_emails")
+      .select("email")
+      .eq("user_id", userId);
+    if (error) return [];
+    return ((data ?? []) as Array<{ email: string }>).map((row) =>
+      row.email.toLowerCase(),
+    );
+  } catch {
+    return [];
+  }
 }
 
 export async function listOrdersForUser(userId: string): Promise<OrderPayload[]> {
@@ -101,7 +126,22 @@ export async function listOrdersForUser(userId: string): Promise<OrderPayload[]>
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) throw new Error(error.message);
-  const rows = (orders ?? []) as DbOrder[];
+  const rows = ((orders ?? []) as DbOrder[]).slice();
+  const emails = await listVerifiedEmails(userId);
+  if (emails.length > 0) {
+    const { data: extras } = await db
+      .from("orders")
+      .select("*")
+      .is("user_id", null)
+      .in("email", emails)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const seen = new Set(rows.map((row) => row.id));
+    for (const row of (extras ?? []) as DbOrder[]) {
+      if (!seen.has(row.id)) rows.push(row);
+    }
+    rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
   if (rows.length === 0) return [];
   const ids = rows.map((order) => order.id);
   const { data: items, error: itemsError } = await db

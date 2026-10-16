@@ -200,11 +200,20 @@ create index if not exists customer_sessions_user_idx
   on public.customer_sessions (user_id, expires_at desc);
 
 alter table public.orders add column if not exists user_id uuid references public.users(id);
+alter table public.orders add column if not exists discount_paise integer not null default 0;
+alter table public.orders add column if not exists coupon_code text;
+alter table public.orders add column if not exists coupon_percent integer;
+alter table public.orders add column if not exists coupon_snapshot jsonb;
 create index if not exists orders_user_id_idx on public.orders (user_id);
 create index if not exists orders_email_idx on public.orders (email);
 
 alter table public.variants add column if not exists created_at timestamptz not null default now();
+alter table public.variants add column if not exists price_paise integer;
+alter table public.variants drop constraint if exists variants_price_paise_check;
+alter table public.variants add constraint variants_price_paise_check
+  check (price_paise is null or price_paise > 0);
 alter table public.order_items add column if not exists created_at timestamptz not null default now();
+alter table public.order_items add column if not exists discount_paise integer not null default 0;
 alter table public.orders add column if not exists created_at timestamptz not null default now();
 alter table public.payment_events add column if not exists created_at timestamptz not null default now();
 
@@ -216,6 +225,40 @@ alter table public.checkout_otps enable row level security;
 alter table public.checkout_verify_sessions enable row level security;
 alter table public.users enable row level security;
 alter table public.customer_sessions enable row level security;
+
+create table if not exists public.coupons (
+  id uuid primary key default gen_random_uuid(),
+  code text not null,
+  discount_percent integer not null,
+  eligibility_type text not null,
+  min_cart_value_paise integer,
+  min_quantity integer,
+  eligible_product_slugs text[] not null default '{}',
+  is_enabled boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint coupons_code_unique unique (code),
+  constraint coupons_percent_check check (discount_percent between 1 and 99),
+  constraint coupons_type_check check (eligibility_type in ('MIN_CART_VALUE', 'MIN_QUANTITY')),
+  constraint coupons_code_percent_check check (
+    code ~ '^[A-Z]+[0-9]{1,2}$'
+    and discount_percent = (substring(code from '[0-9]+$'))::integer
+  ),
+  constraint coupons_threshold_check check (
+    (
+      eligibility_type = 'MIN_CART_VALUE'
+      and min_cart_value_paise > 0
+      and min_quantity is null
+    )
+    or (
+      eligibility_type = 'MIN_QUANTITY'
+      and min_quantity > 0
+      and min_cart_value_paise is null
+    )
+  )
+);
+
+alter table public.coupons enable row level security;
 
 -- Anon has no policies: all commerce goes through the Next.js service role.
 
@@ -237,6 +280,11 @@ create trigger orders_touch_updated_at
 drop trigger if exists users_touch_updated_at on public.users;
 create trigger users_touch_updated_at
   before update on public.users
+  for each row execute function public.touch_updated_at();
+
+drop trigger if exists coupons_touch_updated_at on public.coupons;
+create trigger coupons_touch_updated_at
+  before update on public.coupons
   for each row execute function public.touch_updated_at();
 
 create or replace function public.upsert_customer(
@@ -393,6 +441,7 @@ $$;
 drop function if exists public.checkout_create(text, jsonb, jsonb, integer, integer, integer);
 drop function if exists public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, text, integer, integer, integer);
 drop function if exists public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, integer, text, integer, integer, integer);
+drop function if exists public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, integer, text, integer, integer, integer, integer, text, integer, jsonb);
 
 create or replace function public.checkout_create(
   p_idempotency_key text,
@@ -407,7 +456,11 @@ create or replace function public.checkout_create(
   p_tax_kind text,
   p_cgst_paise integer,
   p_sgst_paise integer,
-  p_igst_paise integer
+  p_igst_paise integer,
+  p_discount_paise integer default 0,
+  p_coupon_code text default null,
+  p_coupon_percent integer default null,
+  p_coupon_snapshot jsonb default null
 )
 returns jsonb
 language plpgsql
@@ -420,6 +473,8 @@ declare
   v_id uuid;
   v_sku text;
   v_stock integer;
+  v_price integer;
+  v_goods integer := 0;
   qty integer;
 begin
   perform public.expire_stale_orders();
@@ -476,7 +531,7 @@ begin
       raise exception 'INVALID_QTY';
     end if;
 
-    select id, sku, stock into v_id, v_sku, v_stock
+    select id, sku, stock, price_paise into v_id, v_sku, v_stock, v_price
     from public.variants
     where product_slug = item->>'product_slug'
       and size = item->>'size'
@@ -486,14 +541,28 @@ begin
       raise exception 'UNKNOWN_VARIANT';
     end if;
 
+    if v_price is null or v_price < 1 then
+      raise exception 'MISSING_PRICE:%', item->>'product_slug' || ':' || (item->>'size');
+    end if;
+
     if v_stock < qty then
       raise exception 'OUT_OF_STOCK:%', item->>'product_slug' || ':' || (item->>'size');
     end if;
+
+    v_goods := v_goods + v_price * qty;
 
     update public.variants
     set stock = stock - qty
     where id = v_id;
   end loop;
+
+  if p_subtotal_paise is distinct from v_goods then
+    raise exception 'PRICE_CHANGED';
+  end if;
+
+  if coalesce(p_discount_paise, 0) < 0 or coalesce(p_discount_paise, 0) > v_goods then
+    raise exception 'INVALID_DISCOUNT';
+  end if;
 
   insert into public.orders (
     public_id,
@@ -515,6 +584,10 @@ begin
     sgst_paise,
     igst_paise,
     shipping_paise,
+    discount_paise,
+    coupon_code,
+    coupon_percent,
+    coupon_snapshot,
     total_paise,
     hold_expires_at,
     user_id
@@ -538,6 +611,10 @@ begin
     coalesce(p_sgst_paise, 0),
     coalesce(p_igst_paise, 0),
     p_shipping_paise,
+    coalesce(p_discount_paise, 0),
+    nullif(p_coupon_code, ''),
+    p_coupon_percent,
+    p_coupon_snapshot,
     p_total_paise,
     now() + make_interval(mins => greatest(2, least(coalesce(p_hold_minutes, 2), 60))),
     v_user_id
@@ -545,7 +622,7 @@ begin
   returning id into new_id;
 
   insert into public.order_items (
-    order_id, variant_id, product_slug, size, sku, name, qty, unit_price_paise, stock_held
+    order_id, variant_id, product_slug, size, sku, name, qty, unit_price_paise, discount_paise, stock_held
   )
   select
     new_id,
@@ -555,7 +632,8 @@ begin
     v.sku,
     line_item->>'name',
     (line_item->>'qty')::integer,
-    (line_item->>'unit_price_paise')::integer,
+    v.price_paise,
+    coalesce((line_item->>'discount_paise')::integer, 0),
     true
   from jsonb_array_elements(p_items) as line_item
   join public.variants v
@@ -947,26 +1025,26 @@ $$;
 
 -- Seed only missing catalog rows. An existing variant (same product + size, or same sku)
 -- is skipped, so maintained sku and stock are left unchanged.
-insert into public.variants (product_slug, size, sku, stock)
-select seed.product_slug, seed.size, seed.sku, seed.stock
+insert into public.variants (product_slug, size, sku, stock, price_paise)
+select seed.product_slug, seed.size, seed.sku, seed.stock, seed.price_paise
 from (
   values
-    ('black-oversized-tshirt', 'S', 'PT-OTS-001-JB-S', 20),
-    ('black-oversized-tshirt', 'M', 'PT-OTS-001-JB-M', 20),
-    ('black-oversized-tshirt', 'L', 'PT-OTS-001-JB-L', 20),
-    ('black-oversized-tshirt', 'XL', 'PT-OTS-001-JB-XL', 20),
-    ('black-oversized-tshirt', 'XXL', 'PT-OTS-001-JB-XXL', 20),
-    ('white-oversized-tshirt', 'S', 'PT-OTS-001-SW-S', 20),
-    ('white-oversized-tshirt', 'M', 'PT-OTS-001-SW-M', 20),
-    ('white-oversized-tshirt', 'L', 'PT-OTS-001-SW-L', 20),
-    ('white-oversized-tshirt', 'XL', 'PT-OTS-001-SW-XL', 20),
-    ('white-oversized-tshirt', 'XXL', 'PT-OTS-001-SW-XXL', 20),
-    ('pink-oversized-tshirt', 'S', 'PT-OTS-001-RP-S', 20),
-    ('pink-oversized-tshirt', 'M', 'PT-OTS-001-RP-M', 20),
-    ('pink-oversized-tshirt', 'L', 'PT-OTS-001-RP-L', 20),
-    ('pink-oversized-tshirt', 'XL', 'PT-OTS-001-RP-XL', 20),
-    ('pink-oversized-tshirt', 'XXL', 'PT-OTS-001-RP-XXL', 20)
-) as seed(product_slug, size, sku, stock)
+    ('black-oversized-tshirt', 'S', 'PT-OTS-001-JB-S', 20, 69900),
+    ('black-oversized-tshirt', 'M', 'PT-OTS-001-JB-M', 20, 69900),
+    ('black-oversized-tshirt', 'L', 'PT-OTS-001-JB-L', 20, 69900),
+    ('black-oversized-tshirt', 'XL', 'PT-OTS-001-JB-XL', 20, 69900),
+    ('black-oversized-tshirt', 'XXL', 'PT-OTS-001-JB-XXL', 20, 69900),
+    ('white-oversized-tshirt', 'S', 'PT-OTS-001-SW-S', 20, 69900),
+    ('white-oversized-tshirt', 'M', 'PT-OTS-001-SW-M', 20, 69900),
+    ('white-oversized-tshirt', 'L', 'PT-OTS-001-SW-L', 20, 69900),
+    ('white-oversized-tshirt', 'XL', 'PT-OTS-001-SW-XL', 20, 69900),
+    ('white-oversized-tshirt', 'XXL', 'PT-OTS-001-SW-XXL', 20, 69900),
+    ('pink-oversized-tshirt', 'S', 'PT-OTS-001-RP-S', 20, 69900),
+    ('pink-oversized-tshirt', 'M', 'PT-OTS-001-RP-M', 20, 69900),
+    ('pink-oversized-tshirt', 'L', 'PT-OTS-001-RP-L', 20, 69900),
+    ('pink-oversized-tshirt', 'XL', 'PT-OTS-001-RP-XL', 20, 69900),
+    ('pink-oversized-tshirt', 'XXL', 'PT-OTS-001-RP-XXL', 20, 69900)
+) as seed(product_slug, size, sku, stock, price_paise)
 where not exists (
   select 1
   from public.variants existing
@@ -979,6 +1057,17 @@ and not exists (
   where existing.sku = seed.sku
 );
 
+-- One-time backfill from the catalogue list price (₹699) for rows created before price_paise existed.
+-- Does not overwrite a price an administrator has already set.
+update public.variants
+set price_paise = 69900
+where price_paise is null
+  and product_slug in (
+    'black-oversized-tshirt',
+    'white-oversized-tshirt',
+    'pink-oversized-tshirt'
+  );
+
 revoke all on public.variants from anon, authenticated;
 revoke all on public.orders from anon, authenticated;
 revoke all on public.order_items from anon, authenticated;
@@ -987,8 +1076,9 @@ revoke all on public.checkout_otps from anon, authenticated;
 revoke all on public.checkout_verify_sessions from anon, authenticated;
 revoke all on public.users from anon, authenticated;
 revoke all on public.customer_sessions from anon, authenticated;
+revoke all on public.coupons from anon, authenticated;
 
-revoke all on function public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, integer, text, integer, integer, integer) from public, anon, authenticated;
+revoke all on function public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, integer, text, integer, integer, integer, integer, text, integer, jsonb) from public, anon, authenticated;
 revoke all on function public.attach_razorpay_order(uuid, text) from public, anon, authenticated;
 revoke all on function public.mark_payment_failed(uuid, text) from public, anon, authenticated;
 revoke all on function public.mark_order_paid(uuid, text) from public, anon, authenticated;
@@ -1004,7 +1094,7 @@ revoke all on function public.restock_order_items(uuid) from public, anon, authe
 revoke all on function public.restock_and_cancel(uuid, text) from public, anon, authenticated;
 revoke all on function public.upsert_customer(text, text, text) from public, anon, authenticated;
 
-grant execute on function public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, integer, text, integer, integer, integer) to service_role;
+grant execute on function public.checkout_create(text, jsonb, jsonb, integer, integer, integer, integer, integer, integer, text, integer, integer, integer, integer, text, integer, jsonb) to service_role;
 grant execute on function public.attach_razorpay_order(uuid, text) to service_role;
 grant execute on function public.mark_payment_failed(uuid, text) to service_role;
 grant execute on function public.mark_order_paid(uuid, text) to service_role;

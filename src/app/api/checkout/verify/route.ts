@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       readOrderAccessToken(publicId),
       getCustomerFromCookie(),
     ]);
-    const auth = orderAuthorized(payload, body.accessToken || cookieToken, user);
+    const auth = await orderAuthorized(payload, body.accessToken || cookieToken, user);
     if (!payload || !auth.ok) {
       flow.fail("order not found or access token mismatch", { publicId: body.publicId });
       return NextResponse.json({ error: "Order not found" }, { status: 404 });

@@ -1,7 +1,6 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual as cryptoTimingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { otpSecret, smsConfigured } from "@/lib/shop/config";
-import { timingSafeEqual } from "@/lib/shop/serialize";
+import { otpSecret } from "@/lib/shop/config";
 import { log } from "@/lib/log";
 import { upsertCustomer } from "@/lib/shop/customers";
 
@@ -144,26 +143,4 @@ export async function getVerifySession(token: string) {
     phone_verified: boolean;
     expires_at: string;
   };
-}
-
-export async function assertCheckoutVerified(input: {
-  token?: string;
-  email: string;
-  phone: string;
-}) {
-  const session = await getVerifySession(input.token ?? "");
-  if (!session?.email_verified || !session.email || !timingSafeEqual(session.email, input.email)) {
-    log.info("otp", "checkout blocked; email not verified");
-    throw new Error("Verify your email before paying.");
-  }
-  if (smsConfigured()) {
-    if (
-      !session.phone_verified ||
-      !session.phone ||
-      !timingSafeEqual(session.phone, input.phone)
-    ) {
-      log.info("otp", "checkout blocked; phone not verified");
-      throw new Error("Verify your mobile number before paying.");
-    }
-  }
 }

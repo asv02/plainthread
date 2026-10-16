@@ -135,6 +135,7 @@ export function payableTotalPaise(goodsPaise: number, shippingPaise: number, tax
 
 export function taxLinesFromStored(order: {
   subtotalPaise: number;
+  discountPaise?: number;
   taxPaise: number;
   taxRateBps: number;
   taxKind: TaxKind;
@@ -144,12 +145,15 @@ export function taxLinesFromStored(order: {
   shippingPaise: number;
   totalPaise: number;
 }) {
-  const inclusive = order.totalPaise === order.subtotalPaise + order.shippingPaise;
+  const discountPaise = order.discountPaise ?? 0;
+  const netGoods = order.subtotalPaise - discountPaise;
+  const inclusive = order.totalPaise === netGoods + order.shippingPaise;
   const taxablePaise = inclusive
-    ? order.subtotalPaise + order.shippingPaise - order.taxPaise
-    : order.subtotalPaise + order.shippingPaise;
+    ? netGoods + order.shippingPaise - order.taxPaise
+    : netGoods + order.shippingPaise;
   return {
     goodsPaise: order.subtotalPaise,
+    discountPaise,
     shippingPaise: order.shippingPaise,
     totalPaise: order.totalPaise,
     tax: {

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { navLinks, siteConfig } from "@/data/site";
 import { CartNav } from "@/components/shop/CartNav";
+import { AccountMenu } from "@/components/layout/AccountMenu";
 import { cn } from "@/lib/utils";
 
 export function Header() {
@@ -93,12 +94,7 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-1">
-            <Link
-              href="/account"
-              className="hidden px-2 text-sm tracking-wide text-secondary transition hover:text-foreground md:inline"
-            >
-              Orders
-            </Link>
+            <AccountMenu />
             <CartNav />
           <button
             type="button"

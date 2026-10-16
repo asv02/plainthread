@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { consumeOtp, normalizeOtpDestination } from "@/lib/shop/otp";
+import { consumeOtp, normalizeOtpDestination, upsertVerifySession } from "@/lib/shop/otp";
 import {
   createCustomerSession,
   customerCookieName,
   customerCookieOptions,
   upsertCustomer,
 } from "@/lib/shop/customers";
+import { verifyCookieName, verifyCookieOptions } from "@/lib/shop/identity";
 import { errMessage, startFlow } from "@/lib/log";
 
 export async function POST(request: Request) {
@@ -19,10 +20,21 @@ export async function POST(request: Request) {
     flow.step("otp consumed");
     const userId = await upsertCustomer({ email });
     const session = await createCustomerSession(userId);
-    (await cookies()).set(
-      customerCookieName,
-      session.token,
-      customerCookieOptions(session.expiresAt),
+    const jar = await cookies();
+    jar.set(customerCookieName, session.token, customerCookieOptions(session.expiresAt));
+    // The login OTP proves this mailbox, so the checkout verify session must
+    // carry the same email: one canonical email per browser.
+    const verifyToken = jar.get(verifyCookieName)?.value ?? "";
+    const verifySession = await upsertVerifySession({
+      token: verifyToken,
+      email,
+      emailVerified: true,
+      phoneVerified: false,
+    });
+    jar.set(
+      verifyCookieName,
+      verifySession.token,
+      verifyCookieOptions(new Date(verifySession.expires_at)),
     );
     flow.done("logged in", { userId });
     return NextResponse.json({ ok: true });

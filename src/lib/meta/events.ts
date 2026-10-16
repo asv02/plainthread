@@ -13,6 +13,7 @@ export const PIXEL_EVENT_NAMES = [
   "ViewContent",
   "AddToCart",
   "InitiateCheckout",
+  "CouponApplied",
   "Purchase",
 ] as const;
 
@@ -32,6 +33,8 @@ const CUSTOM_KEYS = new Set([
   "order_id",
   "tax",
   "shipping",
+  "coupon_code",
+  "discount",
 ]);
 
 export function isPixelEventName(value: string): value is PixelEventName {
@@ -63,6 +66,8 @@ export function eventIdPrefix(event: PixelEventName) {
       return "atc";
     case "InitiateCheckout":
       return "ic";
+    case "CouponApplied":
+      return "coupon";
     case "Purchase":
       return "purchase";
   }

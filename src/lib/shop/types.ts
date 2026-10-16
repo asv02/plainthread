@@ -34,6 +34,10 @@ export type DbOrder = {
   sgst_paise: number;
   igst_paise: number;
   shipping_paise: number;
+  discount_paise?: number;
+  coupon_code?: string | null;
+  coupon_percent?: number | null;
+  coupon_snapshot?: Record<string, unknown> | null;
   total_paise: number;
   currency: string;
   razorpay_order_id: string | null;
@@ -68,6 +72,7 @@ export type DbOrderItem = {
   name: string;
   qty: number;
   unit_price_paise: number;
+  discount_paise?: number;
   stock_held: boolean;
 };
 
@@ -119,6 +124,9 @@ export type PublicOrder = {
   sgstPaise: number;
   igstPaise: number;
   shippingPaise: number;
+  discountPaise: number;
+  couponCode: string | null;
+  couponPercent: number | null;
   totalPaise: number;
   currency: string;
   holdExpiresAt: string | null;
@@ -132,6 +140,7 @@ export type PublicOrder = {
     sku: string;
     qty: number;
     unitPricePaise: number;
+    discountPaise: number;
   }>;
   canCancel: boolean;
 };
