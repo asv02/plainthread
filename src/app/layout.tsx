@@ -59,7 +59,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${inter.variable} ${playfair.variable} h-full`}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${playfair.variable} h-full`}
+      suppressHydrationWarning
+    >
       <body className="min-h-full flex flex-col font-sans antialiased">
         <MetaPixel />
         <JsonLd data={[organizationSchema(), websiteSchema()]} />

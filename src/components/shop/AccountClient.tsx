@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { formatPrice } from "@/lib/utils";
 import type { PublicOrder } from "@/lib/shop/types";
+import { ACCOUNT_CHANGED_EVENT } from "@/components/layout/AccountMenu";
 
 type AccountUser = { email: string; name: string | null; phone: string | null };
 
@@ -73,6 +74,7 @@ export function AccountClient() {
       setCode("");
       setSent(false);
       await load();
+      window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not sign in");
     } finally {
@@ -81,9 +83,15 @@ export function AccountClient() {
   }
 
   async function signOut() {
-    await fetch("/api/account/logout", { method: "POST" });
+    const res = await fetch("/api/account/logout", { method: "POST" });
+    // Only drop the authenticated UI once the server confirmed revocation.
+    if (!res.ok) {
+      setError("Could not sign out. Please try again.");
+      return;
+    }
     setUser(null);
     setOrders([]);
+    window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
   }
 
   if (!user) {

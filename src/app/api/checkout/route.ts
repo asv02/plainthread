@@ -9,7 +9,9 @@ import { jsonWithOrderAccess } from "@/lib/shop/order-access";
 import { validateFbc, validateFbp } from "@/lib/meta/fbp-fbc";
 import { isMarketingConsentGrantedFromHeader } from "@/lib/meta/consent";
 import { requestUserAgent, trustedClientIp } from "@/lib/meta/ip";
-import { priceCart, validateCustomer } from "@/lib/shop/pricing";
+import { buildMagicLineItems, paymentAmount, reviewedTotalMismatch, assertCheckoutIntentMatchesLines, parseCheckoutIntent } from "@/lib/shop/coupon";
+import { validateCustomer } from "@/lib/shop/pricing";
+import { quoteAuthoritativeCart } from "@/lib/shop/quote-service";
 import {
   razorpayConfigError,
   razorpayConfigured,
@@ -17,6 +19,7 @@ import {
   razorpayModeSetting,
   razorpayPublicKeyId,
   simulatedPaymentsAllowed,
+  smsConfigured,
   storefrontUrl,
   stockHoldMinutes,
 } from "@/lib/shop/config";
@@ -24,7 +27,7 @@ import { createRazorpayOrder, RazorpayRequestError } from "@/lib/payments/razorp
 import { isConfirmedOrder, toPublicOrder } from "@/lib/shop/serialize";
 import type { CartLine, OrderPayload } from "@/lib/shop/types";
 import { errMessage, startFlow } from "@/lib/log";
-import { assertCheckoutVerified } from "@/lib/shop/otp";
+import { assertTrustedCheckout } from "@/lib/shop/identity";
 import { upsertCustomer } from "@/lib/shop/customers";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getProduct } from "@/data/products";
@@ -37,9 +40,12 @@ export async function POST(request: Request) {
       items?: CartLine[];
       customer?: Parameters<typeof validateCustomer>[0];
       verifyToken?: string;
+      couponCode?: string;
+      expectedTotalPaise?: number;
       marketingConsent?: boolean;
       fbp?: string;
       fbc?: string;
+      checkoutIntent?: unknown;
     };
 
     const idempotencyKey = body.idempotencyKey?.trim() ?? "";
@@ -58,10 +64,11 @@ export async function POST(request: Request) {
       pincode: customer.pincode,
     });
 
-    await assertCheckoutVerified({
-      token: body.verifyToken,
+    const identity = await assertTrustedCheckout({
       email: customer.email,
       phone: customer.phone,
+      smsRequired: smsConfigured(),
+      fallbackToken: body.verifyToken,
     });
     flow.step("email/otp session verified");
 
@@ -81,14 +88,39 @@ export async function POST(request: Request) {
       simulate: simulatedPaymentsAllowed(),
     });
 
-    const priced = priceCart(body.items ?? [], { destinationState: customer.state });
+    assertCheckoutIntentMatchesLines(parseCheckoutIntent(body.checkoutIntent), body.items ?? []);
+    flow.step("checkout intent matches lines");
+
+    const priced = await quoteAuthoritativeCart(body.items ?? [], {
+      destinationState: customer.state,
+      couponCode: typeof body.couponCode === "string" ? body.couponCode : null,
+    });
+    if (priced.coupon && !priced.coupon.applied) {
+      flow.fail("coupon rejected", { code: priced.coupon.code, message: priced.coupon.message });
+      return NextResponse.json(
+        { error: priced.coupon.message || "Coupon could not be applied" },
+        { status: 400 },
+      );
+    }
+    const reviewError = reviewedTotalMismatch(body.expectedTotalPaise, priced.totalPaise);
+    if (reviewError) {
+      flow.fail("stale total", { expected: body.expectedTotalPaise, totalPaise: priced.totalPaise });
+      return NextResponse.json(
+        { error: reviewError, totalPaise: priced.totalPaise },
+        { status: 409 },
+      );
+    }
+    const payment = paymentAmount(priced.totalPaise);
     flow.step("cart priced", {
       lines: priced.items.map((item) => `${item.product_slug}:${item.size}x${item.qty}`),
       subtotalPaise: priced.subtotalPaise,
+      discountPaise: priced.discountPaise,
+      coupon: priced.coupon?.code ?? null,
       taxPaise: priced.tax.taxPaise,
       taxKind: priced.tax.taxKind,
       shippingPaise: priced.shippingPaise,
-      totalPaise: priced.totalPaise,
+      totalPaise: payment.amountPaise,
+      currency: payment.currency,
       holdMinutes: stockHoldMinutes(),
     });
 
@@ -99,13 +131,17 @@ export async function POST(request: Request) {
       subtotalPaise: priced.subtotalPaise,
       taxPaise: priced.tax.taxPaise,
       shippingPaise: priced.shippingPaise,
-      totalPaise: priced.totalPaise,
+      totalPaise: payment.amountPaise,
       holdMinutes: stockHoldMinutes(),
       taxRateBps: priced.tax.taxRateBps,
       taxKind: priced.tax.taxKind,
       cgstPaise: priced.tax.cgstPaise,
       sgstPaise: priced.tax.sgstPaise,
       igstPaise: priced.tax.igstPaise,
+      discountPaise: priced.discountPaise,
+      couponCode: priced.couponSnapshot?.code ?? null,
+      couponPercent: priced.couponSnapshot?.discount_percent ?? null,
+      couponSnapshot: priced.couponSnapshot,
     });
     flow.step("stock held and order row created", {
       publicId: payload.order.public_id,
@@ -134,12 +170,22 @@ export async function POST(request: Request) {
       })(),
       (async () => {
         try {
-          const userId = await upsertCustomer({
-            email: payload.order.email,
-            phone: payload.order.phone,
-            name: payload.order.customer_name,
-          });
-          if (!payload.order.user_id) {
+          // The order email is OTP-trusted; when it belongs to the signed-in
+          // account (primary or linked email), the account owns the order even
+          // if the DB upsert created/returned another row for the newer email.
+          const orderEmail = payload.order.email.toLowerCase();
+          const sessionUser =
+            identity.account && identity.accountEmails.includes(orderEmail)
+              ? identity.account
+              : null;
+          const userId =
+            sessionUser?.id ??
+            (await upsertCustomer({
+              email: payload.order.email,
+              phone: payload.order.phone,
+              name: payload.order.customer_name,
+            }));
+          if (payload.order.user_id !== userId) {
             await supabaseAdmin().from("orders").update({ user_id: userId }).eq("id", payload.order.id);
             payload.order.user_id = userId;
           }
@@ -200,15 +246,20 @@ export async function POST(request: Request) {
           amountPaise: payload.order.total_paise,
           lineItems: lineItems.length,
         });
+        const charged = paymentAmount(payload.order.total_paise);
         const razorpayOrder = await createRazorpayOrder({
-          amountPaise: payload.order.total_paise,
+          amountPaise: charged.amountPaise,
           receipt: payload.order.public_id,
           notes: {
             public_id: payload.order.public_id,
             email: payload.order.email,
+            coupon: payload.order.coupon_code || "",
           },
           lineItems,
         });
+        if (razorpayOrder.amount !== charged.amountPaise || razorpayOrder.currency !== charged.currency) {
+          throw new Error("Razorpay amount did not match the order total");
+        }
         razorpayOrderId = razorpayOrder.order_id;
         flow.step("Razorpay order created", {
           publicId: payload.order.public_id,
@@ -260,41 +311,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     const message = error instanceof Error ? error.message : "Checkout failed";
-    const status = message.includes("sold out") ? 409 : 400;
+    const status = message.includes("sold out")
+      ? 409
+      : message.includes("PRICE_CHANGED") || message.includes("Prices changed")
+        ? 409
+        : 400;
+    const clientMessage = message.includes("PRICE_CHANGED")
+      ? "Prices changed. Review your cart and try again."
+      : message;
     flow.fail("failed", { error: message, status });
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: clientMessage }, { status });
   }
 }
 
 function magicLineItems(payload: OrderPayload) {
   const origin = storefrontUrl();
-  const lines = payload.items.map((item) => {
-    const product = getProduct(item.product_slug);
+  return buildMagicLineItems(payload.items, payload.order.total_paise, (slug) => {
+    const product = getProduct(slug);
     const image = product?.images[0]?.src;
-    return {
-      sku: item.sku,
-      variant_id: `${item.product_slug}:${item.size}`,
-      name: item.name,
-      description: item.name,
-      quantity: item.qty,
-      price: item.unit_price_paise,
-      offer_price: item.unit_price_paise,
-      image_url: image ? `${origin}${image.startsWith("/") ? image : `/${image}`}` : undefined,
-    };
+    if (!image) return undefined;
+    return `${origin}${image.startsWith("/") ? image : `/${image}`}`;
   });
-  const goods = payload.items.reduce((sum, item) => sum + item.unit_price_paise * item.qty, 0);
-  const extra = payload.order.total_paise - goods;
-  if (extra > 0) {
-    lines.push({
-      sku: "PT-TAX-SHIP",
-      variant_id: "tax-shipping",
-      name: "GST and shipping",
-      description: "GST and shipping",
-      quantity: 1,
-      price: extra,
-      offer_price: extra,
-      image_url: undefined,
-    });
-  }
-  return lines;
 }

@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { CustomerUser } from "@/lib/shop/customers";
-import { customerOwnsOrder } from "@/lib/shop/customers";
+import { customerOwnsOrderWithLinks } from "@/lib/shop/customers";
 import { timingSafeEqual } from "@/lib/shop/serialize";
 import type { OrderPayload } from "@/lib/shop/types";
 import {
@@ -18,15 +18,31 @@ export {
   orderAccessCookieOptions,
 } from "@/lib/shop/order-access-cookie";
 
-export function orderAuthorized(
+export async function orderAuthorized(
   payload: OrderPayload | null,
   token: string,
   user: CustomerUser | null,
 ) {
   if (!payload) return { ok: false as const, tokenOk: false, sessionOk: false };
   const tokenOk = Boolean(token && timingSafeEqual(payload.order.access_token, token));
-  const sessionOk = Boolean(user && customerOwnsOrder(user, payload.order));
+  const sessionOk = user ? await customerOwnsOrderWithLinks(user, payload.order) : false;
   return { ok: tokenOk || sessionOk, tokenOk, sessionOk };
+}
+
+/**
+ * Session-only authorization for reading and cancelling orders. The access
+ * token alone must NOT grant these — tokens leak through email links, shared
+ * devices, and browser history, which would let a stranger view or cancel
+ * someone else's order. Only the payment-confirmation endpoint keeps the
+ * token path (a captured payment must be confirmable by the paying browser).
+ */
+export async function orderSessionAuthorized(
+  payload: OrderPayload | null,
+  user: CustomerUser | null,
+) {
+  if (!payload) return { ok: false as const, signedIn: Boolean(user) };
+  const sessionOk = user ? await customerOwnsOrderWithLinks(user, payload.order) : false;
+  return { ok: sessionOk, signedIn: Boolean(user) };
 }
 
 export async function readOrderAccessToken(publicId: string) {

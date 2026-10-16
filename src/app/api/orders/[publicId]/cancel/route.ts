@@ -8,11 +8,7 @@ import {
 } from "@/lib/shop/orders";
 import { getCustomerFromCookie } from "@/lib/shop/customers";
 import { toPublicOrder } from "@/lib/shop/serialize";
-import {
-  jsonWithOrderAccess,
-  orderAuthorized,
-  readOrderAccessToken,
-} from "@/lib/shop/order-access";
+import { jsonWithOrderAccess, orderSessionAuthorized } from "@/lib/shop/order-access";
 import { errMessage, startFlow } from "@/lib/log";
 import { siteConfig } from "@/data/site";
 
@@ -23,18 +19,17 @@ export async function POST(
   const { publicId } = await context.params;
   const flow = startFlow("cancel-order", { path: "/api/orders/[publicId]/cancel", publicId });
   try {
-    const body = (await request.json()) as {
-      accessToken?: string;
-      reason?: string;
-    };
-    const [payload, user, cookieToken] = await Promise.all([
+    const body = (await request.json().catch(() => ({}))) as { reason?: string };
+    const [payload, user] = await Promise.all([
       getOrderByPublicId(publicId),
       getCustomerFromCookie(),
-      readOrderAccessToken(publicId),
     ]);
-    const auth = orderAuthorized(payload, body.accessToken || cookieToken, user);
+    const auth = await orderSessionAuthorized(payload, user);
     if (!payload || !auth.ok) {
-      flow.fail("not found or unauthorized", { publicId });
+      flow.fail("not found or not signed in", { publicId, signedIn: auth.signedIn });
+      if (!auth.signedIn) {
+        return NextResponse.json({ error: "Sign in to cancel this order." }, { status: 401 });
+      }
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
     flow.step("order loaded", {

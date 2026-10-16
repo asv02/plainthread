@@ -269,7 +269,9 @@ Aliases: `POST /api/create-order` re-exports checkout. `POST /api/verify-payment
 
 **When:** Customer clicks Pay.
 
-**Flow:** validate key (≥ 8 chars) → validate customer → `priceCart` → `checkout_create` → if already `paid`, return `alreadyPaid` → if no Razorpay keys, simulate or `503` + restock → create/attach Razorpay order.
+**Flow:** validate key (≥ 8 chars) → validate customer → `quoteAuthoritativeCart` (database SKU prices, optional `couponCode`) → if the reviewed `expectedTotalPaise` does not match, `409` → `checkout_create` → if already confirmed, return `alreadyPaid` → if no Razorpay keys, simulate or `503` + restock → create/attach Razorpay order for that payable paise amount.
+
+Optional JSON fields: `couponCode` (string) and `expectedTotalPaise` (integer paise the shopper reviewed). Prices, discounts, and the Razorpay amount are calculated on the server. `POST /api/pricing/quote` returns the same breakdown before pay.
 
 **Success `200`**
 

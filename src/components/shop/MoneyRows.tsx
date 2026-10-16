@@ -5,11 +5,15 @@ import type { TaxBreakdown } from "@/lib/shop/tax";
 
 export function MoneyRows({
   goodsPaise,
+  discountPaise = 0,
+  couponCode,
   shippingPaise,
   tax,
   totalPaise,
 }: {
   goodsPaise: number;
+  discountPaise?: number;
+  couponCode?: string | null;
   shippingPaise: number;
   tax: Pick<
     TaxBreakdown,
@@ -24,6 +28,12 @@ export function MoneyRows({
         <span>Subtotal</span>
         <span>{formatPrice(goodsPaise / 100)}</span>
       </p>
+      {discountPaise > 0 && (
+        <p className="flex justify-between gap-4">
+          <span>Coupon{couponCode ? ` ${couponCode}` : ""}</span>
+          <span>-{formatPrice(discountPaise / 100)}</span>
+        </p>
+      )}
       {tax.inclusive && (
         <p className="flex justify-between gap-4 text-secondary">
           <span>Taxable value</span>

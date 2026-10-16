@@ -32,6 +32,9 @@ export function toPublicOrder(payload: OrderPayload): PublicOrder {
     sgstPaise: order.sgst_paise ?? 0,
     igstPaise: order.igst_paise ?? 0,
     shippingPaise: order.shipping_paise,
+    discountPaise: order.discount_paise ?? 0,
+    couponCode: order.coupon_code ?? null,
+    couponPercent: order.coupon_percent ?? null,
     totalPaise: order.total_paise,
     currency: order.currency,
     holdExpiresAt: isUnconfirmedHold(order) ? order.hold_expires_at : null,
@@ -45,6 +48,7 @@ export function toPublicOrder(payload: OrderPayload): PublicOrder {
       sku: item.sku,
       qty: item.qty,
       unitPricePaise: item.unit_price_paise,
+      discountPaise: item.discount_paise ?? 0,
     })),
     canCancel: order.status === "open" && (order.parcel_status ?? "pending") === "pending",
   };
