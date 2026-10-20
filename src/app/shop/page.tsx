@@ -1,4 +1,5 @@
 import { ProductCard } from "@/components/product/ProductCard";
+import { ClarityPageView } from "@/components/analytics/ClarityPageView";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { Button } from "@/components/ui/Button";
 import { FadeIn } from "@/components/ui/FadeIn";
@@ -15,6 +16,7 @@ export const metadata = buildMetadata({
 export default function ShopPage() {
   return (
     <div className="container-px py-8 sm:py-10 md:py-16">
+      <ClarityPageView event="view_collection" />
       <Breadcrumbs items={[{ name: "Home", href: "/" }, { name: "Shop" }]} />
       <FadeIn>
         <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl">Shop</h1>

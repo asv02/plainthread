@@ -9,11 +9,14 @@ import { MoneyRows } from "@/components/shop/MoneyRows";
 import { QtyStepper } from "@/components/shop/QtyStepper";
 import { usePricingQuote } from "@/components/shop/usePricingQuote";
 import { MAX_LINE_QTY } from "@/data/shop";
+import { trackClarityEvent } from "@/lib/clarity";
+import { useClarityMountEvent } from "@/components/analytics/ClarityPageView";
 
 export function CartView() {
   const router = useRouter();
   const { items, setQty, removeItem, pricePaiseFor, variantsLoaded, stockFor, setCheckoutIntent } = useShop();
   const { quote, error, loading } = usePricingQuote({ lines: items });
+  useClarityMountEvent("view_cart");
   const rows = items.map((item) => {
     const product = getProduct(item.productSlug);
     const paise = pricePaiseFor(item.productSlug, item.size);
@@ -65,12 +68,18 @@ export function CartView() {
                   value={item.qty}
                   min={1}
                   max={Math.min(MAX_LINE_QTY, Math.max(item.qty, stockFor(item.productSlug, item.size) ?? MAX_LINE_QTY))}
-                  onChange={(qty) => setQty(item.productSlug, item.size, qty)}
+                  onChange={(qty) => {
+                    setQty(item.productSlug, item.size, qty);
+                    if (qty !== item.qty) trackClarityEvent("cart_quantity_updated");
+                  }}
                 />
                 <button
                   type="button"
                   className="text-sm underline underline-offset-4"
-                  onClick={() => removeItem(item.productSlug, item.size)}
+                  onClick={() => {
+                    removeItem(item.productSlug, item.size);
+                    trackClarityEvent("remove_from_cart");
+                  }}
                 >
                   Remove
                 </button>

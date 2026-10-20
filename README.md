@@ -309,6 +309,141 @@ Sign out (`POST /api/account/logout`) deletes both the `customer_sessions` and `
 
 Pixel ID: `1765251828052032`. One Pixel init after **explicit** marketing consent. Shopping actions are **standard events**, not extra PageViews.
 
+## Microsoft Clarity session analytics (implemented 2026-10-20)
+
+Clarity records the real customer journey — home → collection → product → cart → checkout → order — as sessions plus typed custom events, gated behind the **same** consent decision as the Meta Pixel. It never loads without consent, never in development, and never in the render, hydration or payment path.
+
+### What was implemented
+
+| File | Role |
+|---|---|
+| `src/lib/clarity.ts` | The only module that touches `window.clarity`. Closed allowlists (`CLARITY_EVENTS` = 19 names, `CLARITY_TAG_KEYS` = `product_color`, `checkout_type`), the official stub + async tag script injected **once per document** (`id="clarity-script"`), a bounded 20-call replay queue, `hasSensitiveQuery()` + `customDataLooksSafe()` guards reused from the Meta stack, `consent` revoke/re-grant, and `_reset…ForTests` hooks. Every public call returns `boolean` and cannot throw. |
+| `src/components/analytics/ClarityLoader.tsx` | One instance, in the root layout at `src/app/layout.tsx:70` beside `<MetaPixel />`. Reads `pt_ad_consent` through the existing consent module, defers init to `requestIdleCallback(…, {timeout: 4000})` / `load` / 5 s fallback / first `pointerdown`\|`keydown`, revokes on withdrawal, re-grants on acceptance, and marks App Router transitions with `clarity("set", "page", path)`. Renders `null`; no context provider, so no route becomes client-rendered. |
+| `src/components/analytics/ClarityPageView.tsx` | Exports `useClarityMountEvent(event, { tagKey, tagValue, enabled })` plus a `null`-rendering `<ClarityPageView>` JSX wrapper for server components. Fires a milestone **once per mount and retries** when consent or the deferred init arrives after mount — without the retry, an event emitted during hydration is lost, because Clarity only initializes at idle. |
+| `src/lib/clarity.test.ts` | 11 `node:test` cases against a faked `window`/`document`/`sessionStorage` and a recording SDK stub — no real network, no real project id. |
+| 11 instrumented components/pages | Events were attached only to interaction handlers and verified transitions that already existed. Nothing new listens for global events. |
+
+`package.json` gained exactly one line (`test:clarity`) and **no dependency**. `.env.example:43` documents the variable.
+
+### Why this integration approach
+
+The official Clarity snippet is a stub function whose `.q` array queues arguments until the async `https://www.clarity.ms/tag/<id>` script loads and replays them. The facade reproduces that contract locally (bounded queue, flushed on init) so calls made before the tag is ready are neither lost nor duplicated, while giving the app one typed, testable, allowlisted surface instead of scattered `window.clarity` casts. SSR safety is structural: every entry point returns early when `window`/`document` is undefined, so no browser global is touched during server rendering.
+
+### Project id, local and production setup
+
+1. Create the project: **clarity.microsoft.com → Add project → New project**, name `Plain Thread`, category *E-commerce / Shopping*, region default, then **Settings → Setup & install → Other** and copy the project ID (a short alphanumeric string).
+2. Local: add `NEXT_PUBLIC_CLARITY_PROJECT_ID=<id>` to `.env.local`. `next dev` deliberately **does not** load Clarity (`NODE_ENV === "development"` short-circuits `initClarity`), so local runs stay clean; verify the wiring with `npm run build && npm start` and a consented browser.
+3. Production: set the same variable in the host's environment build config. **`NEXT_PUBLIC_*` is inlined at build time** — setting it only at runtime has no effect (this was hit and confirmed during verification: a server started with the variable set but built without it never requests `clarity.ms`).
+4. Never hardcode the id in source; `src/lib/clarity.ts:17` is the only reference and it reads the environment.
+5. Optional hardening in Clarity **Settings → Privacy / Block list**: exclude `/admin`, `/account`, `/orders`. Recordings should not be needed on authenticated surfaces.
+
+### How to verify it works
+
+- Consent absent → DevTools Network shows **zero** `clarity.ms` requests; `typeof window.clarity === "undefined"`.
+- Accept all → after idle, one `https://www.clarity.ms/tag/<id>` request, `async`, `renderBlockingStatus = non-blocking`; `window.clarity.q` contains only allowlisted `["event", …]` / `["set", …]` arrays; `sessionStorage.pt_clarity_started = "1"`.
+- Clarity **Settings → Custom events** lists the 19 names once real consented traffic arrives; recordings show the journey with each event as a timeline marker.
+- A placeholder id returns **HTTP 204 with 0 bytes** (`curl -i https://www.clarity.ms/tag/ptstest00000`) — the tag request happens but no SDK arrives, so Test-with-placeholder proves wiring only, not data.
+
+### Event matrix (all 19 are fired; none is invented)
+
+| Event | Fires when | Verified |
+|---|---|---|
+| `view_home` | `/` mounts with consent | browser (fresh document) |
+| `view_collection` | `/shop` and `/collections/oversized-tshirts` mount | browser (both routes) |
+| `view_product` | `/products/[slug]` mounts; also sets tag `product_color` | browser (SPA transition **and** fresh document) |
+| `view_content` | `/blog/[slug]` mounts | browser (`/blog/fabric-guide`) |
+| `product_image_interaction` | gallery thumbnail tapped and it changes the active image | browser |
+| `product_size_selected` | size chip changes the selected size | browser |
+| `size_guide_opened` | Size-guide link click | browser |
+| `add_to_cart` | **after** the cart API confirms `result.added` | browser |
+| `view_cart` | `CartView` mounts (includes the empty-cart state) | browser (fresh document, empty and non-empty) |
+| `cart_quantity_updated` | stepper changes a line quantity | browser |
+| `remove_from_cart` | Remove clicked | browser |
+| `buy_now_clicked` | Buy Now pressed (starts the Buy-Now intent) | browser |
+| `begin_checkout` | checkout is hydrated with a priced, non-empty cart; tags `checkout_type` = `cart` \| `buynow` | browser (fires on a fresh `/checkout` load; correctly absent with an empty cart) |
+| `coupon_applied` | inside the existing `couponTrackedKey` effect after server-confirmed application | code-inspected + coupon-engine tests (needs a real quote/coupon interaction) |
+| `payment_initiated` | immediately after `razorpay.open()` | code-inspected — unreachable without OTP-verified contact details |
+| `payment_window_closed` | Razorpay `modal.ondismiss` | code-inspected — same constraint |
+| `payment_failed` | Razorpay `payment.failed` handler | code-inspected — same constraint |
+| `purchase_completed` | **only** when the server order state passes `isEligiblePaidPurchase`, deduped on `pt_clarity_purchase_<publicId>`, retried on `pt-clarity-ready` | unit + code-inspected; never exercised with a real payment (out of scope) |
+| `order_cancelled` | successful cancel response in `OrderView` | code-inspected — the order surface is session-authenticated |
+
+`purchase_completed` cannot fire from a click or from a page that merely looks successful: it reads the same verified server order state the CAPI Purchase uses, so COD, expired-hold and late-capture orders never produce it, and its own sessionStorage key means a reload of the confirmation page cannot duplicate it. It no longer rides on the Meta Pixel's success flag, so a slow Pixel cannot swallow the Clarity milestone either.
+
+### Journey steps that stay outside this site's visibility
+
+Deliberately **not** instrumented, because there is no observable trigger to attach them to:
+
+- Marketplace outbound clicks — `src/components/shop/MarketplaceCards.tsx` exists but is rendered by no page, so there is no click to count. Wire the events when the component is mounted (ask first: the component and its `marketplaces` data look vestigial).
+- Checkout form steps and payment method choice — the Razorpay sheet is a cross-origin iframe; Clarity cannot record or observe inside it, so `payment_method_selected`-style events are impossible here. The site's own single-step form has no step to report.
+- Contact/click-to-call and newsletter — there is no newsletter and no site search; a `mailto:` click cannot be reliably reported (the tab switches before the call lands).
+- Post-click marketplace and payment-provider pages, and anything after the user leaves the origin.
+
+### Consent, masking and PII
+
+No second banner and no new consent concept: Clarity is bound to the existing `pt_ad_consent` cookie (`policyVersion` `2026-10`) and the `pt-ad-consent` window event that the Meta stack already emits.
+
+- **Rejected / never chosen** → `initClarity` is never called; no script, no `_clck` / `_clsk` cookies, no calls (verified: denied condition recorded 0 third-party requests).
+- **Withdrawn after acceptance** → `revokeClarity()` sets the internal gate, clears the queue and pending tags, and calls `clarity("consent", false)`, which is the documented call that stops tracking and removes Clarity cookies. Verified in-browser as exactly one `["consent", false]` followed by no further calls; the cookie-removal side effect itself could not be exercised here, because a placeholder id delivers no SDK body and therefore never sets `_clck` / `_clsk`.
+- **Re-accepted** → `clarity("consent", true)` resumes on the same document without a second script tag (unit-tested).
+- **Masking** → Clarity masks sensitive content by default; additionally `data-clarity-ignore` is applied to the whole checkout `<form>` (`src/components/shop/CheckoutForm.tsx:448`) and to the customer name/address block (`src/components/shop/OrderView.tsx:197`), so those regions are not transmitted at all.
+- **No PII in events or tags** → event names and tag keys come from closed allowlists; tag values are scanned **before** sanitising with the Meta `customDataLooksSafe()` rule (`@` or 10+ consecutive digits ⇒ refused), then clamped to `[a-z0-9-]{1,40}`; any URL carrying `token`, `otp` or `access_token` blocks all Clarity calls; `clarity("identify", …)` is intentionally never used, so no email or phone ever reaches Clarity; `set page` sends the path with query and hash stripped.
+
+### Performance decisions and measured results
+
+Deferred (`idle` / `load` / first input), `async`, deduplicated, no provider, no new dependency, no per-interaction listener. The only unconditional cost with consent denied is one small module in an existing shared chunk plus two effects.
+
+Lighthouse 12.8.2, mobile emulation, simulated throttling, production `next start`, median of 3, home route, same machine and conditions for both columns:
+
+| Build | Perf | FCP | LCP | TBT | CLS | Requests |
+|---|---|---|---|---|---|---|
+| No project id (Clarity inert) | 87 | 1405 ms | 3475 ms | 219 ms | 0 | 17 |
+| Project id set, **no consent** (Clarity never loads) | 78 | 1257 ms | 3634 ms | 525 ms | 0 | 31 |
+
+That gap is **not** attributable to Clarity and is reported as a measurement limitation: Lighthouse's auto-termination window captured different amounts of work per run (the *same* framework chunk `36lm--m0zwqtj.js` was billed 273 ms in one column and 787 ms in the other, and one early pair differed 2311 ms vs 10113 ms main-thread), while this host was under heavy concurrent load. A fixed 9 s observation window with cache disabled, median of 3, unthrottled, isolates it:
+
+| Condition (same build unless noted) | FCP | load | long tasks | JS KB | render-blocking scripts | `clarity.ms` requests |
+|---|---|---|---|---|---|---|
+| home, no project id | 420 ms | 385 ms | 2 / 124 ms | 146 | **0** | 0 |
+| home, id set, consent **denied** | 388 ms | 454 ms | 2 / 157 ms | 168 | **0** | 0 |
+| home, id set, consent **granted** | 464 ms | 528 ms | 3 / 293 ms | 280 | **0** | 1 @ 553–808 ms, 0 B, non-blocking |
+| product, id set, denied | 176 ms | 219 ms | 1 / 52 ms | 180 | **0** | 0 |
+| product, id set, granted | 252 ms | 265 ms | 3 / 244 ms | 292 | **0** | 1 @ 352–635 ms, 0 B, non-blocking |
+
+Attribution of the granted-vs-denied difference: the extra 31 − 26 = 5 requests and 650 − 378 = 272 KB are `connect.facebook.net/en_US/fbevents.js` (112 KB) plus its `signals/config` script (158 KB) — the **pre-existing Meta Pixel**, which shares the same consent gate. Clarity's own measured footprint is a single `async`, non-blocking request starting after `DOMContentLoaded` (60–800 ms), returning 204 / 0 B for the placeholder id. Across all 6 Lighthouse and 18 CDP runs with consent absent, `clarity.ms` was requested **0 times**. Checkout, OTP, payment and order pages are unchanged for non-consenting visitors.
+
+### Verification executed (2026-10-20)
+
+- `npx tsc --noEmit` → clean.
+- `npm run build` (no `NEXT_PUBLIC_CLARITY_PROJECT_ID`) → exit 0; `grep -r ptstest00000 .next/static .next/server` → no match, so no placeholder id is baked into the shipped build.
+- `npm run test:clarity` → **13 tests, 13 pass, 0 fail**. Coverage: refuses to init without an id; never inits in development; injects the async tag exactly once and replays the queue without duplication; refuses events before init; routes post-init calls through `clarity("event"/"set", …)`; strips query/hash from the page marker; blocks delivery when the URL carries a token/otp/access_token; clamps tag values (`"  Buy Now! "` → `buy-now`, `"!!!"` → `unknown`, 80 chars → 40) and rejects raw PII values (`cod;email@x.com` → `false`); withdrawal emits exactly one `["consent", false]` and stops tracking; re-grant emits `["consent", true]`; the ready event dispatches once; the taxonomy is unique, snake_case and PII-free; plus two regressions for the defects listed below (a second document in the same tab session initialises its own stub; deny-at-load then accept resumes delivery).
+- Regression: `test:seo` 8/8, `test:meta` 15/15, `test:coupons` 19/19, `test:identity` 17/17, `test:email-sync` 13/13, `test:order-auth` 10/10 — **95 tests in total across all suites, 0 failures**.
+- `npx eslint` → `✖ 6 problems (5 errors, 1 warning)` — identical to the pre-existing baseline (five `react-hooks/set-state-in-effect` and one unused `_key`); no new lint issue.
+- Real-browser checks on production builds (:3005 no-id, :3006 placeholder-id, Chrome DevTools Protocol driving a headless instance): fail-safe with no id; injection + session flag with id; exactly one `set page` per App Router transition (no duplicate on first load); consent withdrawal stops everything; **zero console messages** in all runs.
+- Full-journey replay against the :3006 build (home → product → Buy Now → checkout, and home → product → cart → checkout, each both as SPA transitions and as fresh document loads) confirmed the queue contents per route: `/shop` and `/collections/oversized-tshirts` → `view_collection`; `/blog/fabric-guide` → `view_content`; `/products/…` → `view_product`; `/cart` → `view_cart`; `/checkout` → `begin_checkout` + `set checkout_type`; `/` → `view_home`. Correct negatives too: an empty cart at `/checkout` and a non-store route (`/size-guide`) produce **no** events.
+- Browser verification found two real defects that the unit tests alone did not catch; both are fixed and regression-tested:
+  1. The init guard used tab-session state (`sessionStorage`), which survives a reload while the module state does not, so after the first document every later page had `window.clarity === undefined` and **no events fired at all**. Fixed by splitting per-document `isClarityInitialized()` from per-tab `hasStartedClarityThisSession()`, the latter kept only for deciding whether a withdrawal has anything to revoke.
+  2. `view_cart` (and equally `begin_checkout`, `purchase_completed`) did not fire on a full-document load, because a child's mount effect runs before the layout loader's effect and therefore before the deferred init. Fixed by the shared `useClarityMountEvent()` hook, which retries on `pt-ad-consent` / `pt-clarity-ready` and still sends at most once per mount; `InitiateCheckoutPixel` no longer couples Clarity to the Meta send, and `purchase_completed` got its own verified-order emitter and dedupe key.
+- Post-fix performance spot-check matched the pre-fix numbers (home 281 KB granted vs 168 KB denied, product 292 KB vs 180 KB, `render-blocking scripts = 0` in every condition, `clarity.ms` requested 0 times without consent), so neither fix moved the perf envelope.
+
+### Alternatives considered
+
+| Option | Trade-off | Decision |
+|---|---|---|
+| Paste the raw official snippet into `layout.tsx` / `next/script` | Smallest diff, but untyped, no consent gate, no queue control, untestable, and invites `window.clarity` calls scattered across components | Rejected — fails §"no duplicate init / consent-aware / testable" |
+| `@microsoft/clarity` npm wrapper | Installed, source read, then removed: it is a <1 KB pass-through that requires `window.clarity` to already exist and throws from every method otherwise, so it adds a dependency without adding capability, and ESM module mocking in `node:test` costs more than the facade it would test | Rejected (uninstalled; `package.json` dependency list is unchanged) |
+| Google Tag Manager / a tag manager | Would centralize tags but adds a second blocking-ish third-party stack, a new vendor dependency, and duplicates an integration this repo already owns directly | Rejected |
+| Next.js `experimental.clientBrowserCache`… / a client `Context` provider for analytics | Would force more of the tree client-side and re-render on navigation for zero benefit | Rejected — loader is a `null`-rendering leaf |
+| Consent-agnostic load then retroactive consent | Loads a tracker before the user chooses, contradicting the existing "explicit choice only" policy | Rejected |
+
+### Remaining limitations
+
+- **No real project id in this environment**, so nothing is visible in a Clarity dashboard yet and the SDK body's parse/execute cost is unmeasured (the tag returns 204/0 B). Re-run the same Lighthouse pair after the id is live.
+- Lighthouse scores on this host swing ±8 points run-to-run; the two-column table above is reported with its confound rather than presented as a Clarity regression. The fixed-window table is the trustworthy comparison.
+- `consent` v1 (`clarity("consent", true|false)`) is used, matching the Meta pattern. Microsoft now also offers `consentv2({ad_Storage, analytics_Storage})` for EEA/UK/CH granularity; if this store targets those markets, migrating the single `revokeClarity()`/`startClarityTracking()` pair to `consentv2` is a small, contained change.
+- Heatmaps/rage-click detection come from recorded sessions, not from these events; they need real consented traffic to be meaningful.
+- Not verified: events behind authenticated or payment states (`purchase_completed`, `order_cancelled`, `payment_*`) were reached by code inspection and unit tests only — completing a real payment is out of scope, and the Razorpay iframe stays invisible to Clarity by design.
+
 ## Cookie consent
 
 A compact bottom notice (not a full-screen overlay) asks for an explicit choice. Navigating, closing the tab, or ignoring the notice is **not** consent. Optional tracking stays off until **Accept all**.
@@ -317,7 +452,7 @@ A compact bottom notice (not a full-screen overlay) asks for an explicit choice.
 |---|---|---|
 | Essential | Cart, checkout, session/OTP, HttpOnly order-access cookie | Always on |
 | Marketing | Meta Pixel, `_fbp`/`_fbc`, CAPI Purchase + hashed matching | Off until Accept all |
-| Analytics | No separate product analytics cookie today | — |
+| Analytics | Microsoft Clarity (`_clck` / `_clsk`) — shares the marketing choice, there is no separate toggle | Off until Accept all |
 
 **Buttons:** Accept all (marketing on) · Reject optional (essential only). **Cookie Preferences** in the footer reopens the same notice so the choice can change. Escape/Close only hide the notice after a choice already exists.
 
@@ -333,12 +468,13 @@ This notice is not legal advice and does not by itself establish DPDP/GDPR compl
 
 ### How to test consent
 
-1. Clear `pt_ad_consent`. Reload: no `fbevents.js`, no `fbq('track')`.
+1. Clear `pt_ad_consent`. Reload: no `fbevents.js`, no `fbq('track')`, no `clarity.ms` request and `window.clarity` is `undefined`.
 2. Accept all: Pixel inits once; Test Events can show PageView and shopping events.
 3. Reject optional: no new Pixel events; `_fbp`/`_fbc` expire.
 4. Refresh and move between pages: the choice sticks.
 5. Cookie Preferences → switch Accept / Reject and confirm Pixel starts or stops.
 6. Checkout + payment still work after Reject optional (cart is essential).
+7. Clarity: after Accept all, one `clarity.ms/tag/<id>` request appears (after idle or first input, never blocking) and `window.clarity.q` holds only allowlisted `["event", …]` / `["set", …]` arrays. Reject after Accept → exactly one `["consent", false]` and no later calls; `_clck`/`_clsk` only exist once a real project id delivers the SDK, so re-check cookie clearing after go-live. With no `NEXT_PUBLIC_CLARITY_PROJECT_ID` in the **build**, nothing loads even when consented — `next dev` never loads Clarity either, so check this with `npm run build && npm start`.
 
 Live Meta Test Events still need a browser with Accept all and no ad blocker. This environment cannot claim Events Manager results unless that UI is opened.
 

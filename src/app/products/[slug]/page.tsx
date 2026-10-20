@@ -1,6 +1,7 @@
 import { AddToCart } from "@/components/shop/AddToCart";
 import { ProductOffers } from "@/components/shop/ProductOffers";
 import { ViewContentPixel } from "@/components/analytics/ViewContentPixel";
+import { ClarityPageView } from "@/components/analytics/ClarityPageView";
 import { ProductCard } from "@/components/product/ProductCard";
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
@@ -116,6 +117,7 @@ export default async function ProductPage({ params }: Props) {
               name={product.name}
               priceRupees={product.price}
             />
+            <ClarityPageView event="view_product" tagKey="product_color" tagValue={product.color} />
             <div className="mt-8">
               <AddToCart productSlug={product.slug} productName={product.name} />
               <ProductOffers productSlug={product.slug} />

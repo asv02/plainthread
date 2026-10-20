@@ -11,6 +11,7 @@ import { MoneyRows } from "@/components/shop/MoneyRows";
 import { CouponField } from "@/components/shop/CouponField";
 import { usePricingQuote } from "@/components/shop/usePricingQuote";
 import { InitiateCheckoutPixel } from "@/components/analytics/InitiateCheckoutPixel";
+import { trackClarityEvent } from "@/lib/clarity";
 import { trackCouponApplied } from "@/lib/meta-pixel-client";
 import { readAdConsentFromCookieString } from "@/lib/meta/consent";
 import { readBrowserMetaCookies } from "@/lib/meta/fbp-fbc";
@@ -189,6 +190,7 @@ export function CheckoutForm() {
     const key = `${quote.coupon.code}|${checkoutLinesKey}|${quote.discountPaise}`;
     if (couponTrackedKey.current === key) return;
     couponTrackedKey.current = key;
+    trackClarityEvent("coupon_applied");
     trackCouponApplied({
       couponCode: quote.coupon.code,
       discountRupees: quote.discountPaise / 100,
@@ -351,6 +353,7 @@ export function CheckoutForm() {
         theme: { color: "#111111" },
         modal: {
           ondismiss: () => {
+            trackClarityEvent("payment_window_closed");
             void (async () => {
               const confirmed = await pollOrder(publicId);
               if (confirmed) {
@@ -404,12 +407,14 @@ export function CheckoutForm() {
         },
       });
       razorpay.on("payment.failed", (response) => {
+        trackClarityEvent("payment_failed");
         setError(
           response.error?.description ||
             "Payment failed. You can retry in the checkout window, or wait 2 minutes for the hold to end.",
         );
       });
       razorpay.open();
+      trackClarityEvent("payment_initiated");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Checkout failed");
       await refreshStock();
@@ -432,6 +437,7 @@ export function CheckoutForm() {
         items={checkoutLines}
         totalPaise={totals?.totalPaise ?? null}
         hydrated={hydrated}
+        checkoutType={checkoutIntent.type}
       />
       <Script
         src="https://checkout.razorpay.com/v1/magic-checkout.js"
@@ -439,6 +445,7 @@ export function CheckoutForm() {
         onLoad={() => setCheckoutReady(true)}
       />
       <form
+        data-clarity-ignore
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();

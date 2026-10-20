@@ -9,6 +9,7 @@ import { siteConfig } from "@/data/site";
 import { isEligiblePaidPurchase, purchaseCustomData, purchaseEventId } from "@/lib/meta/events";
 import { PIXEL_READY_EVENT, trackPurchase } from "@/lib/meta-pixel-client";
 import { AD_CONSENT_EVENT } from "@/lib/meta/consent";
+import { CLARITY_READY_EVENT, trackClarityEvent } from "@/lib/clarity";
 import type { PublicOrder } from "@/lib/shop/types";
 
 function cancelMailto(publicId: string, parcelStatus: string) {
@@ -103,12 +104,36 @@ export function OrderView({ publicId }: { publicId: string }) {
         // ignore
       }
     }
+    // Clarity's purchase marker reads the same verified server order state but
+    // retries against Clarity's own readiness and dedupes on its own key, so a
+    // slow idle init cannot drop the milestone for a paid order.
+    function tryClarity() {
+      if (!order || !isEligiblePaidPurchase(asPurchaseOrder(order))) return;
+      const key = `pt_clarity_purchase_${order.publicId}`;
+      try {
+        if (sessionStorage.getItem(key)) return;
+      } catch {
+        // ignore
+      }
+      if (!trackClarityEvent("purchase_completed")) return;
+      try {
+        sessionStorage.setItem(key, "1");
+      } catch {
+        // ignore
+      }
+    }
+
     trySend();
+    tryClarity();
     window.addEventListener(AD_CONSENT_EVENT, trySend);
+    window.addEventListener(AD_CONSENT_EVENT, tryClarity);
     window.addEventListener(PIXEL_READY_EVENT, trySend);
+    window.addEventListener(CLARITY_READY_EVENT, tryClarity);
     return () => {
       window.removeEventListener(AD_CONSENT_EVENT, trySend);
+      window.removeEventListener(AD_CONSENT_EVENT, tryClarity);
       window.removeEventListener(PIXEL_READY_EVENT, trySend);
+      window.removeEventListener(CLARITY_READY_EVENT, tryClarity);
     };
   }, [order]);
 
@@ -148,6 +173,7 @@ export function OrderView({ publicId }: { publicId: string }) {
       }
       if (!res.ok) throw new Error(data.error || "Could not cancel");
       if (data.order) setOrder(data.order);
+      trackClarityEvent("order_cancelled");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not cancel");
     } finally {
@@ -189,7 +215,7 @@ export function OrderView({ publicId }: { publicId: string }) {
         ))}
       </ul>
       <MoneyRows {...taxLinesFromStored(order)} couponCode={order.couponCode} />
-      <p className="text-sm leading-6 text-secondary">
+      <p data-clarity-ignore className="text-sm leading-6 text-secondary">
         {order.customerName}
         <br />
         {order.addressLine1}

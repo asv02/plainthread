@@ -4,6 +4,7 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { ShopProvider } from "@/components/shop/ShopProvider";
 import { MetaPixel } from "@/components/analytics/MetaPixel";
+import { ClarityLoader } from "@/components/analytics/ClarityLoader";
 import { CookieConsent } from "@/components/analytics/CookieConsent";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { organizationSchema, websiteSchema } from "@/lib/schema";
@@ -66,6 +67,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col font-sans antialiased">
         <MetaPixel />
+        <ClarityLoader />
         <JsonLd data={[organizationSchema(), websiteSchema()]} />
         <ShopProvider>
           <Header />

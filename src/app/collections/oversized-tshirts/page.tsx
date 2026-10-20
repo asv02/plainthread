@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ClarityPageView } from "@/components/analytics/ClarityPageView";
 import Image from "next/image";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { FadeIn } from "@/components/ui/FadeIn";
@@ -17,6 +18,7 @@ export const metadata = buildMetadata({
 export default function CollectionPage() {
   return (
     <>
+      <ClarityPageView event="view_collection" />
       <JsonLd
         data={breadcrumbSchema([
           { name: "Home", path: "/" },

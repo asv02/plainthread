@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState } from "react";
 import type { Product } from "@/data/products";
+import { trackClarityEvent } from "@/lib/clarity";
 import { cn } from "@/lib/utils";
 
 export function ProductGallery({ product }: { product: Product }) {
@@ -29,7 +30,10 @@ export function ProductGallery({ product }: { product: Product }) {
           <button
             key={img.src}
             type="button"
-            onClick={() => setActive(index)}
+            onClick={() => {
+              setActive(index);
+              if (index !== active) trackClarityEvent("product_image_interaction");
+            }}
             aria-label={`View image ${index + 1}`}
             aria-pressed={active === index}
             className={cn(

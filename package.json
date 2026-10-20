@@ -13,6 +13,7 @@
     "test:email-sync": "npx --yes tsx --test --experimental-test-module-mocks src/lib/shop/email-sync.test.ts src/lib/shop/email-switch.test.ts",
     "test:order-auth": "npx --yes tsx --test --experimental-test-module-mocks src/lib/shop/order-access.test.ts",
     "test:seo": "npx --yes tsx --test src/lib/seo.test.ts",
+    "test:clarity": "npx --yes tsx --test src/lib/clarity.test.ts",
     "test:capi": "npx --yes tsx scripts/verify-meta-capi-mock.ts",
     "test:pixel": "npx --yes tsx scripts/verify-meta-pixel.ts",
     "test:razorpay": "node scripts/verify-razorpay.mjs",

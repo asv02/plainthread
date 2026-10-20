@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { ClarityPageView } from "@/components/analytics/ClarityPageView";
 import Link from "next/link";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -22,6 +23,7 @@ export const metadata = buildMetadata({
 export default function HomePage() {
   return (
     <>
+      <ClarityPageView event="view_home" />
       <JsonLd data={faqSchema(siteFaqs.slice(0, 6))} />
 
       {/* HERO — preserve the existing copy and add the 15% editorial badge */}

@@ -5,6 +5,7 @@ import { catalogProductId, paiseToRupees } from "@/lib/meta/catalog";
 import { newMetaEventId } from "@/lib/meta/events";
 import { PIXEL_READY_EVENT, trackInitiateCheckout } from "@/lib/meta-pixel-client";
 import { AD_CONSENT_EVENT } from "@/lib/meta/consent";
+import { useClarityMountEvent } from "@/components/analytics/ClarityPageView";
 import { getProduct } from "@/data/products";
 import type { CartLine } from "@/lib/shop/types";
 
@@ -12,13 +13,23 @@ export function InitiateCheckoutPixel({
   items,
   totalPaise,
   hydrated,
+  checkoutType,
 }: {
   items: CartLine[];
   totalPaise: number | null;
   hydrated: boolean;
+  checkoutType?: "cart" | "buyNow";
 }) {
   const lastKey = useRef("");
   const eventIds = useRef(new Map<string, string>());
+
+  // Clarity's own copy of this milestone retries against Clarity's readiness
+  // instead of the Pixel's, so a slow idle init cannot swallow the event.
+  useClarityMountEvent("begin_checkout", {
+    tagKey: "checkout_type",
+    tagValue: checkoutType,
+    enabled: hydrated && items.length > 0 && totalPaise != null && totalPaise > 0,
+  });
 
   useEffect(() => {
     function trySend() {

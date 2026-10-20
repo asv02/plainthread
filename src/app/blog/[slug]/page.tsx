@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ClarityPageView } from "@/components/analytics/ClarityPageView";
 import { notFound } from "next/navigation";
 import { MDXRemote } from "next-mdx-remote/rsc";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
@@ -46,6 +47,7 @@ export default async function BlogPostPage({ params }: Props) {
 
   return (
     <>
+      <ClarityPageView event="view_content" />
       <JsonLd
         data={[
           articleSchema({

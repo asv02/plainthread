@@ -8,6 +8,7 @@ import { useShop } from "@/components/shop/ShopProvider";
 import { getProduct } from "@/data/products";
 import { catalogProductId } from "@/lib/meta/catalog";
 import { trackAddToCart } from "@/lib/meta-pixel-client";
+import { trackClarityEvent } from "@/lib/clarity";
 import { cn, formatPrice } from "@/lib/utils";
 
 export function AddToCart({
@@ -29,6 +30,7 @@ export function AddToCart({
   function selectSize(option: (typeof SHOP_SIZES)[number]) {
     setSize(option);
     setMessage("");
+    if (option !== size) trackClarityEvent("product_size_selected");
   }
 
   return (
@@ -50,7 +52,11 @@ export function AddToCart({
       <div>
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium">Size</p>
-          <Link href="/size-guide" className="text-xs text-secondary underline underline-offset-4">
+          <Link
+            href="/size-guide"
+            onClick={() => trackClarityEvent("size_guide_opened")}
+            className="text-xs text-secondary underline underline-offset-4"
+          >
             Size guide
           </Link>
         </div>
@@ -91,6 +97,7 @@ export function AddToCart({
           type="button"
           disabled={soldOut || stock == null}
           onClick={() => {
+            trackClarityEvent("buy_now_clicked");
             setCheckoutIntent({ type: "buyNow", productSlug, size });
             router.push("/checkout");
           }}
@@ -104,6 +111,7 @@ export function AddToCart({
           onClick={() => {
             const result = addItem(productSlug, size, 1);
             if (result.added && product) {
+              trackClarityEvent("add_to_cart");
               trackAddToCart({
                 id: catalogProductId(productSlug),
                 quantity: result.qtyAdded,
