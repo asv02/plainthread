@@ -1,7 +1,4 @@
-"use client";
-
-import { motion } from "framer-motion";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 export function FadeIn({
   children,
@@ -12,14 +9,10 @@ export function FadeIn({
   className?: string;
   delay?: number;
 }) {
+  const style: CSSProperties | undefined = delay > 0 ? { animationDelay: `${delay}s` } : undefined;
   return (
-    <motion.div
-      className={className}
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay, ease: [0.22, 1, 0.36, 1] }}
-    >
+    <div className={`fade-in-up ${className ?? ""}`} style={style}>
       {children}
-    </motion.div>
+    </div>
   );
 }

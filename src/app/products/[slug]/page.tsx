@@ -10,7 +10,8 @@ import { JsonLd } from "@/components/seo/JsonLd";
 import { getAllPosts } from "@/lib/blog";
 import { getProduct, getRelatedProducts, products } from "@/data/products";
 import { productFaqs } from "@/data/faqs";
-import { breadcrumbSchema, faqSchema, productSchema } from "@/lib/schema";
+import { loadVariantRows } from "@/lib/shop/sku-prices";
+import { breadcrumbSchema, productSchema, type ProductSchemaCommerce } from "@/lib/schema";
 import { buildMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -31,13 +32,35 @@ export async function generateMetadata({ params }: Props) {
     description: product.seo.description,
     path: `/products/${product.slug}`,
     image: product.images[0].src,
+    imageWidth: 853,
+    imageHeight: 1280,
   });
+}
+
+async function loadCommerceFacts(slug: string): Promise<ProductSchemaCommerce> {
+  try {
+    const rows = (await loadVariantRows()).filter((row) => row.product_slug === slug);
+    const priced = rows
+      .map((row) => row.price_paise)
+      .filter((paise): paise is number => paise != null && paise > 0);
+    return {
+      ...(priced.length > 0 ? { pricePaise: Math.min(...priced) } : {}),
+      ...(rows.length > 0 ? { inStock: rows.some((row) => row.stock > 0) } : {}),
+    };
+  } catch {
+    // Static catalog fallback keeps the page renderable without the database.
+    return {};
+  }
 }
 
 export default async function ProductPage({ params }: Props) {
   const { slug } = await params;
   const product = getProduct(slug);
   if (!product) notFound();
+
+  // Structured-data commerce facts come from the variants table when reachable;
+  // when not, availability is omitted rather than asserted (see schema.ts).
+  const commerce = await loadCommerceFacts(product.slug);
 
   const related = getRelatedProducts(slug);
   const posts = getAllPosts().slice(0, 3);
@@ -46,8 +69,7 @@ export default async function ProductPage({ params }: Props) {
     <>
       <JsonLd
         data={[
-          productSchema(product),
-          faqSchema(productFaqs),
+          productSchema(product, commerce),
           breadcrumbSchema([
             { name: "Home", path: "/" },
             { name: "Products", path: "/products" },
@@ -67,9 +89,9 @@ export default async function ProductPage({ params }: Props) {
 
         {/* Hero: larger image column so full-body photos read clearly */}
         <div className="grid gap-8 md:gap-10 lg:grid-cols-[1.2fr_0.8fr] lg:items-start lg:gap-12 xl:gap-16">
-          <FadeIn className="min-w-0">
+          <div className="min-w-0">
             <ProductGallery product={product} />
-          </FadeIn>
+          </div>
 
           <FadeIn delay={0.08} className="min-w-0 lg:sticky lg:top-24">
             <p className="text-xs uppercase tracking-[0.22em] text-secondary">

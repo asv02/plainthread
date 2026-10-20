@@ -41,13 +41,70 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## SEO included
+## SEO & Core Web Vitals (technical audit of 2026-10-17)
 
-- `generateMetadata` + canonical URLs
-- `sitemap.xml` + `robots.txt`
-- Product, FAQ, Organization, Website, Breadcrumb, Article schema
-- Keyword-rich product and blog URLs
-- Internal linking across products, guides, and articles
+### Current architecture
+
+- Metadata: every public page calls `buildMetadata` (`src/lib/seo.ts`) → title, description, canonical (`https://plainthread.in` root has **no** trailing slash), OpenGraph/Twitter tags. Product/blog pages declare real `og:image` dimensions (853×1280); other pages fall back to `public/og-default.png` (1200×630, rasterized from the brand SVG because crawlers do not render SVG `og:image`).
+- Crawlability: `src/app/sitemap.ts` lists exactly the indexable surface — static routes, all products, all blog posts. `lastModified` is emitted **only** for blog posts, taken from real MDX frontmatter dates (`src/lib/blog.ts`); nothing is fabricated. Private routes (`/cart`, `/checkout`, `/admin`, `/account`, `/orders`, API) are `noIndex` and disallowed in `src/app/robots.ts`. Unknown product/blog slugs return real 404s via `notFound()`.
+- Structured data (`src/lib/schema.ts`): Product, FAQPage, BreadcrumbList, Article, Organization, WebSite. Product `Offer.price` and `availability` are read from the `variants` table at render time (`loadCommerceFacts` in `src/app/products/[slug]/page.tsx` → `loadVariantRows` in `src/lib/shop/sku-prices.ts`); if the database is unreachable the page renders with the static catalog price and availability is **omitted rather than assumed**.
+- Performance: entrance/card animations are pure CSS (`.fade-in-up`, `.card-lift` in `src/app/globals.css`); framer-motion has been removed from every route. Above-the-fold hero text and the product gallery are not wrapped in entrance animations, so LCP is not gated behind animation completion. The global `prefers-reduced-motion` override neutralizes all animations for users who ask for it.
+- Automated checks: `npm run test:seo` (`src/lib/seo.test.ts`, 8 tests) fails the build pipeline if the sitemap fabricates dates or invents URLs, if private routes leak into it, if `aggregateRating`/`potentialAction` reappear in schema without a data source, if Offer price/stock mapping breaks, or if the canonical/OG defaults regress.
+
+### Verified problems found in the audit and fixed
+
+| Severity | Problem | Fix |
+| --- | --- | --- |
+| P0 | `aggregateRating` in Product schema with no review source (rich-result penalty / manual action risk) | Removed from `productSchema`; test asserts it stays absent |
+| P0 | `availability: InStock` hardcoded regardless of stock | Driven by real `variants.stock`; omitted if DB unreachable |
+| P0 | Fabricated `lastModified` on every sitemap URL | Only blog posts carry dates, from real frontmatter |
+| P0 | `og:image` pointed at an SVG crawlers can't rasterize | `public/og-default.png` generated at 1200×630 and set as default |
+| P1 | LCP gated behind hydration + opacity-0 entrance animations (framer-motion) | CSS animations, framer-motion deleted from the bundle, hero/gallery unwrapped |
+| P1 | SearchAction (sitelinks search box) pointing at `/shop`, which has no `q` handler | Removed from `websiteSchema` |
+| P1 | `og:image:width/height` hardcoded 1200×630 on product pages whose images are 853×1280 | Dimensions per page; tests cover both paths |
+| P1 | Blog "related articles" were arbitrary | Topic/tag-scored relevance ordering |
+
+Deliberately **not** done: `PriceSpecification`/strike-through in structured data (checkout quotes are coupon-dependent — schema price could mismatch the charged price, a Google policy risk); removing the `<meta keywords>` tag (zero ranking value but harmless; left to avoid unrelated churn); consolidating `/shop` vs `/products` vs `/collections` (needs real Search Console query data — see research list).
+
+### Before / after measurements
+
+Local Lighthouse 12.8.2 lab runs, mobile emulation (412×732), `next start` production build on a private port, median-of-3 (individual runs were noisy under host CPU contention — worst outliers: perf 25 / TBT 10.5 s). These are **lab numbers, not Chrome UX field data**.
+
+| Route | Perf before → after | LCP before → after | TBT before → after | CLS |
+| --- | --- | --- | --- | --- |
+| `/` (home) | 73 → 81 | 4477 ms → 3139 ms | 428 ms → 517 ms | 0 → 0 |
+| `/products/black-oversized-tshirt` | 64 → 76 | 4598 ms → 3608 ms | 792 ms → 500 ms | 0 → 0 |
+
+Home TBT is within run-to-run variance; the product page (which carried the animation library) improved ~37%. Field CWV must be confirmed in Search Console after the next release — lab numbers on a dev machine under contention are not user-facing Core Web Vitals.
+
+### Verification executed this session
+
+- `npm run test:seo` 8/8, `test:coupons` 19/19, `test:identity` 17/17, `test:email-sync` 13/13, `test:order-auth` 10/10, `test:meta` 15/15 — 74/74 pass.
+- `npx tsc --noEmit` exit 0; `npm run build` exit 0; `npx eslint` back to the pre-existing baseline of 5 errors + 1 warning (all in shop components unrelated to this work — the one lint error introduced during the SEO edits was fixed by extracting `loadCommerceFacts`).
+- Live production HTML on a rebuilt `next start`: sitemap.xml serves 25 `<url>` with exactly 8 `<lastmod>` (blog posts only); robots.txt allow/disallow set correct; `og-default.png` serves 200 `image/png` 21,348 bytes; Product JSON-LD serves real DB price 699 + `InStock`, zero occurrences of `aggregateRating` or SearchAction.
+- Homepage functional check: 3 product cards with strikethrough + price, `animationName: fade-in-up` and `@keyframes fade-in-up` present in the served CSS chunk. (An opacity≠1 reading in an embedded browser was traced to CSS-animation freezing in hidden documents, not a page bug — real headless Chrome paints at FCP ≈ 1.2 s.)
+
+### Search Console / production checklist (cannot be verified locally)
+
+1. Verify/confirm domain property `https://plainthread.in` and submit `https://plainthread.in/sitemap.xml`.
+2. Request indexing for the 3 product pages + homepage; watch "Pages → Indexed" over 2–4 weeks.
+3. After the next deploy, check Core Web Vitals report (field data) — lab medians above are not CWV.
+4. Rich Results test on one product URL once the domain resolves (Offer price must equal checkout price without coupons).
+5. Review Enhancements → Breadcrumbs/Products/FAQ for errors; monitor Manual Actions page.
+6. Export Queries report at 28 and 90 days — needed for the `/shop` vs `/products` vs `/collections` consolidation decision and title/CTR experiments.
+
+### 30 / 60 / 90-day organic plan
+
+- **Days 0–30 (after deploy):** submit sitemap, fix any crawl errors, publish 2 comparison/care posts from the existing blog topics interlinking all 3 product pages, collect real customer reviews so `aggregateRating` can return **with** a verifiable source.
+- **Days 31–60:** use GSC query data to sharpen titles/H1s; add size-guide and fabric internal links from product pages; test one collection-page canonical strategy; build 3–5 digital-PR links (local press, gifting roundups).
+- **Days 61–90:** evaluate `/shop` vs `/collections/oversized-tshirts` cannibalization with impressions data; expand long-tail content (220 gsm cotton, oversized fit, fabric care) targeting observed query gaps; re-measure CWV and rerun `npm run test:seo` regression before each release.
+
+### Research required (not fixable in code alone)
+
+- `/shop`, `/products`, `/collections/*` duplicate search intent — needs GSC query/impression data before choosing a canonical hierarchy.
+- "Chemical-safe"/quality claims in copy need substantiation before they can appear in structured data or ads.
+- Real review acquisition for honest `aggregateRating`.
+- Field Core Web Vitals after release; backlink profile visibility via Ahrefs/GSC links report.
 
 ## Customize marketplace links
 

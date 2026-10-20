@@ -6,6 +6,8 @@ type BuildMetadataInput = {
   description: string;
   path?: string;
   image?: string;
+  imageWidth?: number;
+  imageHeight?: number;
   type?: "website" | "article";
   noIndex?: boolean;
 };
@@ -19,7 +21,9 @@ export function buildMetadata({
   title,
   description,
   path = "/",
-  image = "/og-default.svg",
+  image = "/og-default.png",
+  imageWidth,
+  imageHeight,
   type = "website",
   noIndex = false,
 }: BuildMetadataInput): Metadata {
@@ -27,6 +31,10 @@ export function buildMetadata({
   const fullTitle = title.includes("Plain Thread")
     ? title
     : `${title} | Plain Thread`;
+
+  const preview = { url: absoluteUrl(image), alt: fullTitle };
+  const sizedPreview =
+    imageWidth && imageHeight ? { ...preview, width: imageWidth, height: imageHeight } : preview;
 
   return {
     title: fullTitle,
@@ -40,7 +48,7 @@ export function buildMetadata({
       siteName: siteConfig.name,
       locale: siteConfig.locale,
       type,
-      images: [{ url: absoluteUrl(image), width: 1200, height: 630, alt: fullTitle }],
+      images: [sizedPreview],
     },
     twitter: {
       card: "summary_large_image",

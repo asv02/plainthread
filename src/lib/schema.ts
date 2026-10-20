@@ -22,11 +22,6 @@ export function websiteSchema() {
     "@type": "WebSite",
     name: siteConfig.name,
     url: siteConfig.domain,
-    potentialAction: {
-      "@type": "SearchAction",
-      target: `${siteConfig.domain}/shop?q={search_term_string}`,
-      "query-input": "required name=search_term_string",
-    },
   };
 }
 
@@ -43,7 +38,29 @@ export function breadcrumbSchema(items: { name: string; path: string }[]) {
   };
 }
 
-export function productSchema(product: Product) {
+export type ProductSchemaCommerce = {
+  pricePaise?: number;
+  inStock?: boolean;
+};
+
+export function productSchema(product: Product, commerce: ProductSchemaCommerce = {}) {
+  const priceRupees = commerce.pricePaise != null ? commerce.pricePaise / 100 : product.price;
+  const offer: Record<string, unknown> = {
+    "@type": "Offer",
+    url: absoluteUrl(`/products/${product.slug}`),
+    priceCurrency: siteConfig.currency,
+    price: priceRupees,
+    seller: {
+      "@type": "Organization",
+      name: siteConfig.name,
+    },
+  };
+  // Only claim availability when real variant stock was read; otherwise omit rather than assume InStock.
+  if (commerce.inStock !== undefined) {
+    offer.availability = commerce.inStock
+      ? "https://schema.org/InStock"
+      : "https://schema.org/OutOfStock";
+  }
   return {
     "@context": "https://schema.org",
     "@type": "Product",
@@ -57,24 +74,7 @@ export function productSchema(product: Product) {
     },
     material: product.fabric,
     color: product.color,
-    aggregateRating: {
-      "@type": "AggregateRating",
-      ratingValue: product.rating,
-      reviewCount: product.reviewCount,
-      bestRating: 5,
-      worstRating: 1,
-    },
-    offers: {
-      "@type": "Offer",
-      url: absoluteUrl(`/products/${product.slug}`),
-      priceCurrency: siteConfig.currency,
-      price: product.price,
-      availability: "https://schema.org/InStock",
-      seller: {
-        "@type": "Organization",
-        name: siteConfig.name,
-      },
-    },
+    offers: offer,
   };
 }
 

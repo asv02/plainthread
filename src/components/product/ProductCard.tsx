@@ -1,21 +1,17 @@
-"use client";
-
 import Image from "next/image";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import type { CSSProperties } from "react";
 import type { Product } from "@/data/products";
 import { formatPrice } from "@/lib/utils";
 
 export function ProductCard({ product, index = 0 }: { product: Product; index?: number }) {
+  const style: CSSProperties = { animationDelay: `${index * 0.06}s` };
   return (
-    <motion.article
-      initial={{ opacity: 0, y: 18 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay: index * 0.06 }}
-      whileHover={{ y: -8 }}
-      className="group [@media(hover:none)]:transform-none"
-    >
-      <Link href={`/products/${product.slug}`} className="block">
+    <article className="fade-in-up" style={style}>
+      <Link
+        href={`/products/${product.slug}`}
+        className="card-lift group block [@media(hover:none)]:transform-none"
+      >
         <div className="overflow-hidden bg-[#f5f5f5] shadow-[var(--shadow)]">
           <div className="relative aspect-[2/3] overflow-hidden">
             <Image
@@ -48,6 +44,6 @@ export function ProductCard({ product, index = 0 }: { product: Product; index?: 
           </p>
         </div>
       </Link>
-    </motion.article>
+    </article>
   );
 }

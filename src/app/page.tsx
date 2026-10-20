@@ -55,16 +55,12 @@ export default function HomePage() {
         </svg>
         <div className="container-px relative z-10 grid min-h-[min(88vh,820px)] items-center gap-10 py-14 sm:py-20 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)] lg:gap-6">
           <div className="relative z-10">
-            <FadeIn>
-              <p className="font-serif text-[1.75rem] tracking-[0.12em] text-foreground sm:text-5xl md:text-6xl">
-                PLAIN THREAD
-              </p>
-            </FadeIn>
-            <FadeIn delay={0.08}>
-              <h1 className="mt-6 max-w-3xl font-serif text-[1.65rem] leading-tight text-foreground sm:mt-8 sm:text-4xl md:text-5xl">
-                Premium Oversized T-Shirts Made With 220 GSM Combed Cotton
-              </h1>
-            </FadeIn>
+            <p className="font-serif text-[1.75rem] tracking-[0.12em] text-foreground sm:text-5xl md:text-6xl">
+              PLAIN THREAD
+            </p>
+            <h1 className="mt-6 max-w-3xl font-serif text-[1.65rem] leading-tight text-foreground sm:mt-8 sm:text-4xl md:text-5xl">
+              Premium Oversized T-Shirts Made With 220 GSM Combed Cotton
+            </h1>
             <FadeIn delay={0.14}>
               <p className="mt-5 max-w-xl text-base leading-7 text-secondary sm:mt-6 sm:text-lg sm:leading-8">
                 Oversized Essentials, Made Better. Minimal. Comfortable. Built to Last.

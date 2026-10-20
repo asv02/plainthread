@@ -34,7 +34,15 @@ export default async function BlogPostPage({ params }: Props) {
 
   const related = getAllPosts()
     .filter((p) => p.slug !== post.slug)
-    .slice(0, 3);
+    .map((p) => ({
+      post: p,
+      score:
+        (p.category === post.category ? 2 : 0) +
+        p.tags.filter((tag) => post.tags.includes(tag)).length,
+    }))
+    .sort((a, b) => b.score - a.score || (a.post.date < b.post.date ? 1 : -1))
+    .slice(0, 3)
+    .map((entry) => entry.post);
 
   return (
     <>
