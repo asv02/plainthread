@@ -17,10 +17,16 @@ export function Footer() {
             Comfortable. Built to last.
           </p>
           <a
+            href={`tel:${siteConfig.support.phone}`}
+            className="mt-6 block text-sm text-foreground underline underline-offset-4"
+          >
+            {siteConfig.support.name}, {siteConfig.support.role} — {siteConfig.support.phone}
+          </a>
+          <a
             href={siteConfig.instagram}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-6 inline-block text-sm text-foreground underline underline-offset-4"
+            className="mt-3 inline-block text-sm text-foreground underline underline-offset-4"
           >
             Instagram
           </a>

@@ -7,6 +7,11 @@ export const siteConfig = {
     "Plain Thread creates premium oversized t-shirts crafted with 220 GSM combed cotton. Minimal design, breathable comfort, and timeless essentials. Shop black, white, and pink on plainthread.in.",
   email: "hello@plainthread.in",
   instagram: "https://www.instagram.com/plainthread.in/",
+  support: {
+    name: "Akash Suryavanshi",
+    role: "Co-Founder",
+    phone: "8090178921",
+  },
   locale: "en_IN",
   currency: "INR",
   foundingYear: 2024,

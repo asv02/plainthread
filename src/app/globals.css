@@ -64,6 +64,11 @@ svg {
   color: #ffffff;
 }
 
+/* Keep the size-guide dialog on the existing neutral palette instead of the UA grey */
+dialog::backdrop {
+  background: rgba(17, 17, 17, 0.45);
+}
+
 /* Mobile 360 → Tablet 768 → Desktop 1920, content capped ~1200px */
 .container-px {
   width: 100%;

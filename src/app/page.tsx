@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { FadeIn } from "@/components/ui/FadeIn";
+import { StarRating } from "@/components/ui/StarRating";
 import { ProductCard } from "@/components/product/ProductCard";
 import { FaqList } from "@/components/ui/FaqList";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -178,7 +179,11 @@ export default function HomePage() {
           <FadeIn delay={0.1}>
             <p className="text-xs uppercase tracking-[0.2em] text-secondary">Featured</p>
             <h2 className="mt-3 font-serif text-3xl sm:text-4xl md:text-5xl">{products[0].name}</h2>
-            <p className="mt-2 tracking-widest">★★★★★</p>
+            <StarRating
+              rating={products[0].rating}
+              reviewCount={products[0].reviewCount}
+              className="mt-2"
+            />
             <p className="mt-6 text-lg leading-8 text-secondary">
               Made for everyday comfort. No loud branding. No unnecessary graphics. Only
               timeless essentials.
@@ -241,7 +246,13 @@ export default function HomePage() {
           {reviews.map((review, i) => (
             <FadeIn key={review.author} delay={i * 0.05}>
               <blockquote className="h-full border border-border bg-card p-6 shadow-[var(--shadow)]">
-                <p className="text-sm tracking-widest">{"★".repeat(review.rating)}</p>
+                <p
+                  className="text-sm tracking-widest"
+                  role="img"
+                  aria-label={`${review.rating} out of 5 stars`}
+                >
+                  <span aria-hidden="true">{"★".repeat(review.rating)}</span>
+                </p>
                 <p className="mt-4 text-sm leading-7 text-secondary">&ldquo;{review.text}&rdquo;</p>
                 <footer className="mt-6 text-sm text-foreground">— {review.author}</footer>
               </blockquote>

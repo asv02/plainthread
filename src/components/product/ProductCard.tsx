@@ -3,9 +3,13 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { Product } from "@/data/products";
 import { formatPrice } from "@/lib/utils";
+import { StarRating } from "@/components/ui/StarRating";
+import { formatPaise, offerDisplay, rupeesToPaise, savingsLabel } from "@/lib/shop/price-display";
 
 export function ProductCard({ product, index = 0 }: { product: Product; index?: number }) {
   const style: CSSProperties = { animationDelay: `${index * 0.06}s` };
+  const offer = offerDisplay(rupeesToPaise(product.price), product.compareAtPrice);
+  const saving = savingsLabel(offer);
   return (
     <article className="fade-in-up" style={style}>
       <Link
@@ -28,17 +32,21 @@ export function ProductCard({ product, index = 0 }: { product: Product; index?: 
           <h3 className="mt-2 font-serif text-xl text-foreground sm:text-2xl">Oversized Tee</h3>
           <p className="mt-1 text-sm text-secondary">220 GSM</p>
           <p className="mt-2 flex items-baseline gap-2 text-sm">
-            {product.compareAtPrice != null && (
-              <span className="text-secondary line-through">{formatPrice(product.compareAtPrice)}</span>
-            )}
             <span className="text-foreground">{formatPrice(product.price)}</span>
+            {offer?.referencePaise != null && (
+              <span className="text-secondary line-through">
+                <span className="sr-only">Reference price </span>
+                {formatPaise(offer.referencePaise)}
+              </span>
+            )}
           </p>
-          <p
-            className="mt-2 text-sm tracking-widest text-foreground"
-            aria-label={`${product.rating} out of 5 stars`}
-          >
-            {"★".repeat(5)}
-          </p>
+          {saving && (
+            <p className="mt-1 text-xs text-secondary">
+              Save {saving.rupees}
+              {saving.percent >= 1 ? ` (${saving.percent}%)` : ""}
+            </p>
+          )}
+          <StarRating rating={product.rating} className="mt-2" />
           <p className="mt-4 text-sm text-foreground transition group-hover:underline group-hover:underline-offset-4">
             View Details →
           </p>

@@ -9,6 +9,8 @@
     "lint": "eslint",
     "test:meta": "npx --yes tsx --test src/lib/meta/meta.test.ts",
     "test:coupons": "npx --yes tsx --test src/lib/shop/coupon.test.ts",
+    "test:pricing": "npx --yes tsx --test src/lib/shop/price-display.test.ts src/lib/shop/sizing.test.ts",
+    "test:trust": "npx --yes tsx --test src/lib/shop/order-support.test.ts src/components/ui/StarRating.test.tsx",
     "test:identity": "npx --yes tsx --test src/lib/shop/identity.test.ts",
     "test:email-sync": "npx --yes tsx --test --experimental-test-module-mocks src/lib/shop/email-sync.test.ts src/lib/shop/email-switch.test.ts",
     "test:order-auth": "npx --yes tsx --test --experimental-test-module-mocks src/lib/shop/order-access.test.ts",

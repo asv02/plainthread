@@ -3,6 +3,7 @@ import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { FadeIn } from "@/components/ui/FadeIn";
 import { siteConfig } from "@/data/site";
 import { buildMetadata } from "@/lib/seo";
+import { RETURN_WINDOW_DAYS } from "@/lib/shop/order-support";
 
 export const metadata = buildMetadata({
   title: "Shipping & Returns",
@@ -21,7 +22,8 @@ export default function ShippingReturnsPage() {
         <h1 className="font-serif text-4xl md:text-5xl">Shipping & Returns</h1>
         <p className="mt-4 max-w-2xl text-secondary">
           You can return an order after it has been delivered — not only before
-          dispatch. The window is 7 days from the delivered date.
+          dispatch. The window is {RETURN_WINDOW_DAYS} days from the delivered
+          date.
         </p>
       </FadeIn>
 
@@ -35,7 +37,8 @@ export default function ShippingReturnsPage() {
         <h2>Returns after delivery</h2>
         <p>
           If the tee does not work for you after Delhivery marks it delivered,
-          you may request a return within <strong>7 days of the delivered date</strong>.
+          you may request a return within{" "}
+          <strong>{RETURN_WINDOW_DAYS} days of the delivered date</strong>.
           The garment must be unused, unwashed, and in original condition with
           tags attached.
         </p>

@@ -15,6 +15,7 @@ import { trackClarityEvent } from "@/lib/clarity";
 import { trackCouponApplied } from "@/lib/meta-pixel-client";
 import { readAdConsentFromCookieString } from "@/lib/meta/consent";
 import { readBrowserMetaCookies } from "@/lib/meta/fbp-fbc";
+import { RETURN_WINDOW_DAYS } from "@/lib/shop/order-support";
 import type { PublicOrder } from "@/lib/shop/types";
 
 type CheckoutResponse = {
@@ -595,8 +596,8 @@ export function CheckoutForm() {
             : `Pay ${formatPrice((totals?.totalPaise ?? 0) / 100)}`}
         </button>
         <p className="text-xs leading-5 text-secondary">
-          Stock is held for 2 minutes after you start checkout.Returns are accepted within
-          7 days of the delivered date.{" "}
+          Stock is held for 2 minutes after you start checkout. Returns are
+          accepted within {RETURN_WINDOW_DAYS} days of the delivered date.{" "}
           <a href="/shipping-returns" className="underline underline-offset-2">
             Shipping &amp; returns
           </a>

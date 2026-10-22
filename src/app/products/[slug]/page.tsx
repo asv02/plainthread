@@ -1,10 +1,12 @@
 import { AddToCart } from "@/components/shop/AddToCart";
 import { ProductOffers } from "@/components/shop/ProductOffers";
+import { OrderSupport } from "@/components/shop/OrderSupport";
 import { ViewContentPixel } from "@/components/analytics/ViewContentPixel";
 import { ClarityPageView } from "@/components/analytics/ClarityPageView";
 import { ProductCard } from "@/components/product/ProductCard";
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
+import { StarRating } from "@/components/ui/StarRating";
 import { FaqList } from "@/components/ui/FaqList";
 import { FadeIn } from "@/components/ui/FadeIn";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -102,12 +104,7 @@ export default async function ProductPage({ params }: Props) {
               {product.name}
             </h1>
             <p className="mt-3 font-serif text-xl text-secondary sm:text-2xl">{product.headline}</p>
-            <p className="mt-4 tracking-widest" aria-label={`${product.rating} stars`}>
-              {"★".repeat(5)}{" "}
-              <span className="text-sm tracking-normal text-secondary">
-                {product.rating} · {product.reviewCount} reviews
-              </span>
-            </p>
+            <StarRating rating={product.rating} reviewCount={product.reviewCount} className="mt-4" />
             <p className="mt-2 text-sm text-secondary">
               {product.gsm} GSM · {product.fabric} · {product.fit}
             </p>
@@ -121,6 +118,7 @@ export default async function ProductPage({ params }: Props) {
             <div className="mt-8">
               <AddToCart productSlug={product.slug} productName={product.name} />
               <ProductOffers productSlug={product.slug} />
+              <OrderSupport />
             </div>
 
             <p className="mt-8 text-lg leading-8 text-secondary">

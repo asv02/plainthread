@@ -446,6 +446,96 @@ Attribution of the granted-vs-denied difference: the extra 31 − 26 = 5 request
 - Heatmaps/rage-click detection come from recorded sessions, not from these events; they need real consented traffic to be meaningful.
 - Not verified: events behind authenticated or payment states (`purchase_completed`, `order_cancelled`, `payment_*`) were reached by code inspection and unit tests only — completing a real payment is out of scope, and the Razorpay iframe stays invisible to Clarity by design.
 
+## Trust signals, offer clarity, size help and founder support (2026-10-20 → 10-21)
+
+Four workstreams (A–D) delivered as one brief. Nothing here changes a price, a discount, or an image.
+
+### A — Offer and price clarity
+
+**Finding first: the "FLAT 15% OFF ON ALL T-SHIRTS" seal and the configured prices do not conflict.** The seal at [src/app/page.tsx:90](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/app/page.tsx#L90) is DOM, not part of the hero image, and every SKU carries `price: 699` / `compareAtPrice: 825` ([src/data/products.ts:154](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/data/products.ts#L154)). ₹825 → ₹699 is 15.27% off the reference, which floors to the 15% advertised. So the correct action was to make the UI *derive* that number from the authoritative prices instead of restating marketing copy — not to touch pricing, and not to create a discount to justify a claim.
+
+`PLAIN5`'s extra 5% stays a **conditional** coupon: it renders only through `ProductOffers` from `/api/coupons/offers`, with its minimum cart value / quantity and eligible slugs stated in plain language, and is never folded into the 15%. When the endpoint fails it returns `offers: []`, so the site shows no offer rather than a fallback offer.
+
+New single display helper — [src/lib/shop/price-display.ts](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/lib/shop/price-display.ts):
+
+- Amounts stay in **integer paise**, the same unit as `variants.price_paise`, `quoteCart` and the `/api/checkout` re-quote, so a shown saving cannot drift from what is charged.
+- `offerDisplay()` returns `referencePaise: null` unless the reference is **strictly above** what the customer pays. Strike-through and saving disappear together the moment a variant is priced at or above the compare-at value — no invented saving.
+- `savingsPercent` uses `Math.floor`, never round-up: a shown discount must not overstate the real one.
+- Rendered as `₹699` · ~~₹825~~ · `Save ₹126 (15% off)`, with `<span className="sr-only">Reference price </span>` so the struck number is not read as a second price with no meaning.
+
+Wired into the PDP ([src/components/shop/AddToCart.tsx:30](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/components/shop/AddToCart.tsx#L30), from the DB variant price), [ProductCard](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/components/product/ProductCard.tsx), the collection listing (which previously showed **no price at all**) and the homepage featured block.
+
+```mermaid
+flowchart LR
+    V["variants.price_paise (Supabase)"] --> Q["quoteCart / percentDiscountPaise (integer paise)"]
+    V --> D["offerDisplay() display helper"]
+    C["compareAtPrice (rupees)"] -->|"rupeesToPaise"| D
+    D -->|"reference > payable only"| S["PDP · cards · listings: ₹699 ~~₹825~~ Save ₹126 (15%)"]
+    Q --> K["cart · checkout totals"]
+    Q --> R["/api/checkout server re-quote + stale-total guard"]
+    R -->|"authoritative"| P["payment"]
+    S -.->|"same unit, same source"| K
+```
+
+### B — Size help without leaving the page
+
+[src/components/shop/SizeGuideDialog.tsx](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/components/shop/SizeGuideDialog.tsx) opens the sizing data in a native `<dialog>` via `showModal()`. That choice buys Escape-to-close, focus trap, top-layer stacking, background inertness and `display:none` when closed for free — no new dependency, no hand-rolled focus manager. Focus returns to the trigger on close, so the selected size and stock line are never lost. If `showModal` is unavailable it falls back to `router.push("/size-guide")`.
+
+[src/components/shop/SizeGuideContent.tsx](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/components/shop/SizeGuideContent.tsx) is the single renderer shared by the dialog and `/size-guide`, which stays published for SEO. [src/lib/shop/sizing.ts](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/lib/shop/sizing.ts) parses the cm strings once and computes **`chestAroundCm = chestFlatCm * 2`** — circumference is derived from the flat measure, so the two columns can never disagree. Both are labelled columns, plus a sentence stating which is which. Desktop gets a `<table>` with `scope="col"`; below `sm` it becomes stacked `<dl>` cards, so there is no horizontal scroll on a phone. Fit advice is explicitly "guidance on the intended oversized silhouette — not a guarantee of fit."
+
+### C — Founder support next to the CTA
+
+[src/lib/shop/order-support.ts](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/lib/shop/order-support.ts) is the only source of the support copy, so the wording is testable rather than scattered JSX. It renders "Questions about your order? Contact Akash Suryavanshi, Founder, on 8090178921." with a real `tel:8090178921` link, in [src/components/shop/OrderSupport.tsx](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/components/shop/OrderSupport.tsx) directly under the buy box, plus `/contact` and the footer. Contact details live once in [src/data/site.ts:10](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/data/site.ts#L10) and are also emitted as `telephone` / `contactPoint` in the organization JSON-LD ([src/lib/schema.ts](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/lib/schema.ts)).
+
+**Honesty by construction, enforced by tests:**
+
+- No delivery estimate. Nothing in the commerce layer resolves a PIN-code transit time, so the line states that transit depends on the destination and links to the policy instead of quoting a window.
+- `RETURN_WINDOW_DAYS = 7` is now imported by the policy page and the checkout note, so the panel, the published policy and checkout cannot drift.
+- The cancellation line mirrors the real gate in `OrderView` (`parcelStatus === "pending"`), not an aspiration.
+- `order-support.test.ts` asserts the absence of WhatsApp, 24/7, "call us anytime", hours and response times, and that no duration appears in the delivery line.
+
+### D — Trust audit
+
+**Fixed: the star rating lied.** Every card rendered `{"★".repeat(5)}` while announcing a different number — a 4.8 showed five solid stars. [src/components/ui/StarRating.tsx](file:///C:/Users/Dell/Desktop/Plain_Thread/plain_thread1/src/components/ui/StarRating.tsx) now draws a proportional clip (`4.9 → width:98%`) over a grey base row, keeps `4.9 · 128 reviews` as visible text, and exposes one `role="img"` label. Used on the PDP, product cards, homepage featured block and the collection page. Testimonial stars were kept but labelled honestly (`role="img"` + `aria-label`, glyphs `aria-hidden`). No `aggregateRating` is emitted in JSON-LD, so these numbers were never published as structured review data and still are not.
+
+**Reported, deliberately not changed** (these need the owner's evidence, not a code edit):
+
+| Claim | Where | Source of truth |
+|---|---|---|
+| `rating` 4.9/4.8/4.9, `reviewCount` 128/96/84 | `src/data/products.ts` | No table, no review provider — hardcoded |
+| 4 named 5-star testimonials | `src/data/content.ts` | Same |
+| 220 GSM, 100% combed cotton, pre-shrunk, chemical-safe / skin-friendly dyes, "built to last" | data + copy pages | Consistent across every surface, but nothing in the repo substantiates them |
+| Grid/collection prices come from static `products.ts`; PDP, cart and checkout use DB paise | `ProductCard`, listings | Matches today (699/825 everywhere); a DB-only change would desync the grids |
+
+Privacy held: the new components contain no analytics, storage or cookie calls; the consent and Clarity modules show no git modification; `package.json` gained two test scripts and **zero dependencies**; the founder's phone is rendered but never sent to any event. Accessibility measured: contrast 5.74:1 and 18.88:1, new tap target 36px, visible focus on every control. (The `Size & fit` trigger's inline text link inside the panel is exempt from WCAG 2.5.8's 24px minimum as an inline link in a sentence.)
+
+### Verification executed (2026-10-21, production build `next start -p 3006`)
+
+| Check | Command / action | Result |
+|---|---|---|
+| Types | `npx tsc --noEmit` | **PASS** exit 0 |
+| Lint | `npm run lint` | **PASS at baseline** — `✖ 6 problems (5 errors, 1 warning)`, all pre-existing (`react-hooks/set-state-in-effect` ×5, unused `_key` in `coupon.ts:435`) |
+| Unit | `test:meta coupons pricing trust identity email-sync order-auth seo clarity` | **PASS** 15+19+13+11+17+13+10+8+13 = **119 pass, 0 fail** |
+| Build | `npm run build` | **PASS** |
+| PDP truth | `/products/pink-oversized-tshirt` | `₹699 · ref ₹825 · Save ₹126 (15% off)`, `PLAIN5 — Save 5%`, aria `4.9 out of 5 stars from 84 reviews`, contact + `tel:` present |
+| Dialog lifecycle | open → Escape → close-button | `:modal` true, focus → "Close size guide", S 53/106 … XXL 62/124, Escape closed, focus restored, M still selected, "3 left in M" |
+| Cart → checkout authority | 2 × ₹699 | Subtotal ₹1,398, GST ₹69.90, Total **₹1,467.90** |
+| Coupon applied | `PLAIN5` | −₹69.90 → GST ₹66.41 → **₹1,394.51** (= 132810 + 6641 paise, exact) |
+| Coupon removed | Remove | Restored to ₹1,467.90 exactly, field cleared |
+| Console | `/shop`, `/cart`, `/checkout`, `/size-guide`, `/collections/…`, PDP | **Empty** on every page except three third-party warnings (below) |
+| Failed requests | network log, 78 fetch/XHR | **0 non-2xx/3xx**; `/api/coupons/offers` 200 |
+| Mobile | 264px client width (narrower than an iPhone) | `scrollWidth === clientWidth` on every page — no horizontal overflow; dialog screenshot confirmed |
+| Images untouched | `git status --porcelain public/` (empty) + `git diff --quiet HEAD -- public src/data/products.ts` (exit 0) | **PASS** — byte-for-byte unchanged, including the hero |
+
+Three console warnings on `/checkout` are all third-party and pre-existing: two from `magic-checkout.js` (`Unrecognized feature: 'web-share'`, `'local-network-access'`) and one from `fbevents.js` about the custom `CouponApplied` event name. None originates in this repo's code.
+
+### Limitations
+
+- **Desktop (≥640px) table layout is CSSOM-verified, not visually verified.** The browser pane cannot be widened and launching an external browser was declined, so the desktop branch was confirmed by reading the live rules (`.sm\:block{display:block}` / `.sm\:hidden{display:none}` under `(min-width:40rem)`) rather than by looking at it. Re-check on a real desktop viewport.
+- `/contact` overflows horizontally below ~308px client width. This is **pre-existing** — the EMAIL / Instagram cards use unbreakable `font-serif text-2xl` strings (226px + 48px padding) — and no shipping phone is narrower, so it was left alone rather than widened into this change.
+- The homepage seal's "ALL T-SHIRTS" is currently true only because the catalog is three tees. Adding a product without a compare-at price makes that claim false; the seal has no link to the price source of truth.
+- Rating, review and fabric provenance remains unverified (table above). Removing them is a marketing decision, not an engineering one, so the display is now honest about the numbers while the numbers themselves still need a source.
+
 ## Cookie consent
 
 A compact bottom notice (not a full-screen overlay) asks for an explicit choice. Navigating, closing the tab, or ignoring the notice is **not** consent. Optional tracking stays off until **Accept all**.

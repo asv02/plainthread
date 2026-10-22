@@ -12,6 +12,15 @@ export function organizationSchema() {
     logo: absoluteUrl("/logo.svg"),
     sameAs: [siteConfig.instagram],
     email: siteConfig.email,
+    telephone: siteConfig.support.phone,
+    contactPoint: [
+      {
+        "@type": "ContactPoint",
+        telephone: siteConfig.support.phone,
+        contactType: "customer service",
+        name: `${siteConfig.support.name}, ${siteConfig.support.role}`,
+      },
+    ],
     foundingDate: String(siteConfig.foundingYear),
   };
 }

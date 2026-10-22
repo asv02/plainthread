@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SHOP_SIZES } from "@/data/shop";
 import { useShop } from "@/components/shop/ShopProvider";
+import { SizeGuideDialog } from "@/components/shop/SizeGuideDialog";
 import { getProduct } from "@/data/products";
 import { catalogProductId } from "@/lib/meta/catalog";
 import { trackAddToCart } from "@/lib/meta-pixel-client";
 import { trackClarityEvent } from "@/lib/clarity";
 import { cn, formatPrice } from "@/lib/utils";
+import { formatPaise, offerDisplay, savingsLabel } from "@/lib/shop/price-display";
 
 export function AddToCart({
   productSlug,
@@ -26,6 +27,8 @@ export function AddToCart({
   const soldOut = stock === 0;
   const product = getProduct(productSlug);
   const unitPaise = pricePaiseFor(productSlug, size);
+  const offer = offerDisplay(unitPaise, product?.compareAtPrice);
+  const saving = savingsLabel(offer);
 
   function selectSize(option: (typeof SHOP_SIZES)[number]) {
     setSize(option);
@@ -36,11 +39,6 @@ export function AddToCart({
   return (
     <div className="space-y-4">
       <p className="flex items-baseline gap-3 text-lg">
-        {product?.compareAtPrice != null && (
-          <span className="text-sm text-secondary line-through">
-            {formatPrice(product.compareAtPrice)}
-          </span>
-        )}
         <span className="text-foreground">
           {unitPaise != null
             ? formatPrice(unitPaise / 100)
@@ -48,17 +46,26 @@ export function AddToCart({
               ? "Price unavailable"
               : "Loading price…"}
         </span>
+        {offer?.referencePaise != null && (
+          <span className="text-sm text-secondary line-through">
+            <span className="sr-only">Reference price </span>
+            {formatPaise(offer.referencePaise)}
+          </span>
+        )}
       </p>
+      {saving && (
+        <p className="mt-1 text-sm text-secondary">
+          Save {saving.rupees}
+          {saving.percent >= 1 ? ` (${saving.percent}% off)` : ""}
+        </p>
+      )}
       <div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-medium">Size</p>
-          <Link
-            href="/size-guide"
-            onClick={() => trackClarityEvent("size_guide_opened")}
-            className="text-xs text-secondary underline underline-offset-4"
-          >
-            Size guide
-          </Link>
+          <SizeGuideDialog
+            headingId={`size-guide-${productSlug}`}
+            onOpened={() => trackClarityEvent("size_guide_opened")}
+          />
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {SHOP_SIZES.map((option) => {
